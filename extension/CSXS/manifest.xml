@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionManifest Version="7.0"
+  ExtensionBundleId="com.localwhisper.subtitles"
+  ExtensionBundleName="Local Whisper Subtitles"
+  ExtensionBundleVersion="2.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <ExtensionList>
+    <Extension Id="com.localwhisper.subtitles.panel" Version="2.0.0" />
+  </ExtensionList>
+  <ExecutionEnvironment>
+    <HostList>
+      <Host Name="AEFT" Version="[17.0,999.0)" />
+      <Host Name="PPRO" Version="[17.0,999.0)" />
+    </HostList>
+    <LocaleList>
+      <Locale Code="All" />
+    </LocaleList>
+    <RequiredRuntimeList>
+      <RequiredRuntime Name="CSXS" Version="11.0" />
+    </RequiredRuntimeList>
+  </ExecutionEnvironment>
+  <DispatchInfoList>
+    <Extension Id="com.localwhisper.subtitles.panel">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./index.html</MainPath>
+          <ScriptPath>./jsx/host.jsx</ScriptPath>
+          <CEFCommandLine>
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--mixed-context</Parameter>
+            <Parameter>--allow-file-access</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>本地 Whisper 字幕</Menu>
+          <Geometry>
+            <Size>
+              <Width>380</Width>
+              <Height>720</Height>
+            </Size>
+            <MinSize>
+              <Width>320</Width>
+              <Height>520</Height>
+            </MinSize>
+            <MaxSize>
+              <Width>1200</Width>
+              <Height>1600</Height>
+            </MaxSize>
+          </Geometry>
+          <Icons />
+        </UI>
+      </DispatchInfo>
+    </Extension>
+  </DispatchInfoList>
+</ExtensionManifest>

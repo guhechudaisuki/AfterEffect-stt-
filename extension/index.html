@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adobe 特效复制与本地字幕</title>
+  <link rel="stylesheet" href="css/panel.css">
+</head>
+<body>
+  <main class="panel-shell" data-host="unknown">
+    <header class="app-header">
+      <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+      <div class="brand-copy">
+        <h1>特效复制与本地字幕</h1>
+        <p><span id="hostBadge">--</span><span id="hostLabel">正在连接 Adobe</span></p>
+      </div>
+    </header>
+
+    <section class="status-strip" id="systemStatus" data-tone="loading" aria-live="polite">
+      <span class="status-dot"></span>
+      <div><strong id="statusTitle">正在初始化</strong><span id="statusDetail">连接宿主并检测本地运行环境</span></div>
+    </section>
+
+    <details class="host-tool primary-tool ae-only" id="effectCopyDetails" open hidden>
+      <summary><span><i data-lucide="copy-check"></i>特效复制</span><i data-lucide="chevron-down"></i></summary>
+      <div class="tool-body">
+        <div class="button-grid two-cols">
+          <button class="secondary-button" id="recordEffectSourcesButton" type="button"><i data-lucide="pipette"></i><span>记录效果来源层</span></button>
+          <button class="secondary-button" id="recordEffectTargetsButton" type="button"><i data-lucide="list-checks"></i><span>记录应用目标层</span></button>
+        </div>
+        <button class="secondary-button full-command" id="chooseEffectAepButton" type="button"><i data-lucide="folder-open"></i><span>从 AEP 选择效果来源</span></button>
+        <div class="dual-lists"><div><small>来源顺序</small><ol class="ordered-layer-list compact-list" id="effectSourceList"><li class="empty-row">未选择</li></ol></div><div><small>目标顺序</small><ol class="ordered-layer-list compact-list" id="effectTargetList"><li class="empty-row">未选择</li></ol></div></div>
+        <div class="property-tree compact-tree" id="effectPropertyTree"><p class="empty-row">记录来源层后读取全部可复制属性与效果</p></div>
+        <button class="primary-button full-command" id="applyEffectsButton" type="button" disabled><i data-lucide="copy-check"></i><span>复制特效</span></button>
+      </div>
+    </details>
+
+    <details class="host-tool transcription-switch" id="transcriptionDetails" open>
+      <summary><span><i data-lucide="captions"></i>字幕识别（可选）</span><i data-lucide="chevron-down"></i></summary>
+      <div class="tool-body compact-toggle-body">
+        <label class="feature-toggle"><span><strong>启用 STT</strong><small>按选中图层逐一生成独立字幕</small></span><input id="enableSttInput" type="checkbox" checked></label>
+      </div>
+    </details>
+
+    <section class="control-section range-section stt-feature" aria-labelledby="rangeHeading">
+      <div class="section-heading">
+        <h2 id="rangeHeading">入点到出点</h2>
+        <button class="icon-button inline-icon" id="refreshContextButton" type="button" title="刷新范围" aria-label="刷新范围"><i data-lucide="refresh-cw"></i></button>
+      </div>
+      <div class="timeline-range">
+        <div class="range-object"><i data-lucide="clapperboard"></i><span><strong id="contextName">未读取</strong><small id="contextMeta">--</small></span></div>
+        <div class="range-times"><span><small>入点</small><b id="rangeIn">--:--:--</b></span><i data-lucide="arrow-right"></i><span><small>出点</small><b id="rangeOut">--:--:--</b></span><span class="range-duration" id="rangeDuration">--</span></div>
+      </div>
+    </section>
+
+    <section class="control-section model-section stt-feature" aria-labelledby="modelHeading">
+      <div class="section-heading">
+        <h2 id="modelHeading">模型与加速</h2>
+        <details class="menu-details" id="scanMenu">
+          <summary class="text-button"><i data-lucide="scan-search"></i><span>扫描</span></summary>
+          <div class="popover-menu">
+            <button type="button" data-scan="specifiedDirectory"><i data-lucide="folder-search"></i><span>指定文件夹扫描</span></button>
+            <button type="button" data-scan="fullDisk"><i data-lucide="hard-drive-search"></i><span>全盘扫描</span></button>
+          </div>
+        </details>
+      </div>
+      <label class="field full-field"><span>Whisper 模型</span><select id="modelSelect" disabled><option value="">尚未扫描</option></select></label>
+      <small class="scan-path" id="scanPathLabel">模型扫描结果会保存到本机配置</small>
+      <div class="uvr5-row" id="uvr5Row" data-ready="false">
+        <strong>UVR5</strong>
+        <details class="menu-details" id="uvr5ScanMenu">
+          <summary class="icon-button compact-scan" title="扫描 UVR5 模型" aria-label="扫描 UVR5 模型"><i data-lucide="scan-search"></i></summary>
+          <div class="popover-menu">
+            <button type="button" data-uvr5-scan="specifiedDirectory"><i data-lucide="folder-search"></i><span>指定文件夹</span></button>
+            <button type="button" data-uvr5-scan="fullDisk"><i data-lucide="hard-drive-search"></i><span>全盘扫描</span></button>
+          </div>
+        </details>
+        <label class="uvr5-model-field"><span class="sr-only">UVR5 模型</span><select id="uvr5ModelSelect" disabled title="未扫描"><option value="">未找到模型</option></select></label>
+        <label class="switch-control" title="没有可用模型时无法启用"><input id="enableUvr5Input" type="checkbox" disabled><span></span><em>启用</em></label>
+        <details class="path-details"><summary title="显示模型路径"><i data-lucide="folder-open"></i></summary><small id="uvr5PathLabel">尚未扫描 UVR5 模型</small></details>
+      </div>
+      <div class="field-grid two-cols">
+        <label class="field"><span>计算设备</span><select id="deviceSelect"><option value="auto">自动</option><option value="gpu">CUDA GPU</option><option value="hybrid">GPU+CPU 混合（Vulkan）</option><option value="cpu">CPU</option></select></label>
+        <label class="field"><span>识别语言</span><select id="languageSelect"><option value="auto">自动检测</option><option value="zh">中文</option><option value="en">English</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="es">Español</option></select></label>
+      </div>
+      <div class="runtime-line" id="runtimeLine"><span class="mini-dot"></span><strong id="runtimeName">未检测运行环境</strong><small id="runtimeDetail"></small></div>
+      <div class="runtime-actions">
+        <button type="button" class="secondary-button compact-action" id="choosePythonRuntimeButton"><i data-lucide="folder-cog"></i><span>指定 Python 运行时</span></button>
+        <small id="pythonRuntimePath">自动检测 Python 环境</small>
+      </div>
+      <div class="recommended-model" id="recommendedModel" hidden>
+        <div><strong>Whisper large-v3-turbo Q5_0</strong><small>默认推荐模型</small></div>
+        <button type="button" class="secondary-button compact-action" id="downloadModelButton"><i data-lucide="download"></i><span>获取模型</span></button>
+      </div>
+    </section>
+
+    <section class="control-section translation-section stt-feature" aria-labelledby="translationHeading">
+      <div class="section-heading"><h2 id="translationHeading">语言输出</h2></div>
+      <div class="segmented output-language-mode" role="group" aria-label="语言输出模式">
+        <button type="button" class="segment active" data-translation-mode="source">STT 原文</button>
+        <button type="button" class="segment" data-translation-mode="single">单语言</button>
+        <button type="button" class="segment" data-translation-mode="bilingual">双语</button>
+      </div>
+      <div class="translation-fields" id="translationFields" hidden>
+        <div class="field-grid two-cols">
+          <label class="field"><span>语言 A</span><select id="targetLanguageA"></select></label>
+          <label class="field" id="targetLanguageBField" hidden><span>语言 B</span><select id="targetLanguageB"></select></label>
+        </div>
+        <details class="sub-details" id="providerDetails">
+          <summary><span>翻译 API</span><i data-lucide="chevron-down"></i></summary>
+          <div class="details-body">
+            <label class="field full-field"><span>接口地址</span><input id="apiBaseUrl" type="url" value="https://api.openai.com/v1" spellcheck="false"></label>
+            <div class="field-grid two-cols">
+              <label class="field"><span>模型</span><input id="translationModel" type="text" placeholder="模型名称" spellcheck="false"></label>
+              <label class="field"><span>API Key</span><input id="apiKeyInput" type="password" autocomplete="off" placeholder="本次使用"></label>
+            </div>
+            <button class="secondary-button full-command" id="testApiButton" type="button"><i data-lucide="plug-zap"></i><span>测试连接并读取模型</span></button>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="control-section layout-section style-section stt-feature" aria-labelledby="styleHeading">
+      <div class="section-heading tabs-heading">
+        <h2 id="styleHeading">字幕参数</h2>
+        <div class="tab-list" role="tablist"><button type="button" role="tab" aria-selected="true" data-tab="layout">位置</button><button type="button" role="tab" aria-selected="false" data-tab="type">文字</button><button type="button" role="tab" aria-selected="false" data-tab="wrapping">换行</button></div>
+      </div>
+      <div class="tab-panel active" data-panel="layout" role="tabpanel">
+        <div class="composition-preview" id="compositionPreview">
+          <div class="safe-area"></div>
+          <div class="position-grid" id="positionGrid" aria-label="字幕中心位置">
+            <button type="button" data-x="10" data-y="12" aria-label="左上"></button><button type="button" data-x="50" data-y="12" aria-label="中上"></button><button type="button" data-x="90" data-y="12" aria-label="右上"></button>
+            <button type="button" data-x="10" data-y="50" aria-label="左中"></button><button type="button" data-x="50" data-y="50" aria-label="居中"></button><button type="button" data-x="90" data-y="50" aria-label="右中"></button>
+            <button type="button" data-x="10" data-y="88" aria-label="左下"></button><button type="button" data-x="50" data-y="88" class="active" aria-label="中下"></button><button type="button" data-x="90" data-y="88" aria-label="右下"></button>
+          </div>
+          <div class="caption-preview" id="captionPreview">本地字幕预览</div>
+        </div>
+        <div class="field-grid two-cols preview-numbers">
+          <label class="field"><span>中心 X</span><span class="unit-input"><input id="positionX" type="number" min="0" max="100" value="50"><em>%</em></span></label>
+          <label class="field"><span>中心 Y</span><span class="unit-input"><input id="positionY" type="number" min="0" max="100" value="88"><em>%</em></span></label>
+        </div>
+      </div>
+      <div class="tab-panel" data-panel="type" role="tabpanel" hidden>
+        <div class="field-grid two-cols">
+          <label class="field wide-field"><span>字体</span><input id="fontInput" type="text" value="MicrosoftYaHei" list="fontList" autocomplete="off"><datalist id="fontList"></datalist></label>
+          <label class="field"><span>字号</span><input id="fontSizeInput" type="number" min="8" max="500" value="72"></label>
+          <label class="field"><span>字距</span><input id="trackingInput" type="number" min="-200" max="1000" value="0"></label>
+          <label class="field"><span>行距</span><input id="leadingInput" type="number" min="0" max="500" value="86"></label>
+        </div>
+      </div>
+      <div class="tab-panel" data-panel="wrapping" role="tabpanel" hidden>
+        <div class="field-grid two-cols">
+          <label class="field"><span>每行字数上限</span><input id="maxLineCharsInput" type="number" min="0" max="100" value="0"></label>
+          <label class="field"><span>最多行数</span><input id="maxLinesInput" type="number" min="1" max="4" value="2" disabled></label>
+        </div>
+      </div>
+    </section>
+
+    <section class="control-section output-section stt-feature" aria-labelledby="outputHeading">
+      <div class="section-heading"><h2 id="outputHeading">输出方式</h2></div>
+      <div class="segmented" id="aeOutputModes" role="group" aria-label="AE 输出方式" hidden><button type="button" class="segment active" data-output="perSegmentLayers">逐句文本图层</button><button type="button" class="segment" data-output="singleLayer">单一文本图层</button></div>
+      <div class="segmented" id="prOutputModes" role="group" aria-label="PR 输出方式" hidden><button type="button" class="segment active" data-output="graphics">图形字幕</button><button type="button" class="segment" data-output="captions">原生字幕轨</button></div>
+      <label class="field full-field pr-only" id="premiereTrackField" hidden><span>图形字幕视频轨道</span><select id="videoTrackSelect"></select></label>
+    </section>
+
+    <details class="host-tool ae-only stt-feature" id="templateDetails" hidden>
+      <summary><span><i data-lucide="layers-3"></i>AE 文本模板</span><i data-lucide="chevron-down"></i></summary>
+      <div class="tool-body">
+        <div class="button-grid two-cols">
+          <button class="secondary-button" id="recordTemplatesButton" type="button"><i data-lucide="mouse-pointer-2"></i><span>记录当前合成图层</span></button>
+          <button class="secondary-button" id="chooseAepButton" type="button"><i data-lucide="folder-open"></i><span>选择 AEP</span></button>
+        </div>
+        <ol class="ordered-layer-list" id="templateLayerList"><li class="empty-row">尚未选择模板图层</li></ol>
+        <div class="tree-toolbar"><strong>属性与效果</strong><button class="icon-button inline-icon" id="refreshTreeButton" type="button" title="读取属性树" aria-label="读取属性树"><i data-lucide="list-tree"></i></button></div>
+        <div class="property-tree" id="templatePropertyTree"><p class="empty-row">选择模板后读取</p></div>
+      </div>
+    </details>
+
+    <section class="run-section stt-feature">
+      <div class="progress-wrap" id="progressWrap" hidden><div class="progress-label"><span id="progressText">准备中</span><span id="progressPercent"></span></div><div class="progress-track"><span id="progressBar"></span></div></div>
+      <div class="action-row"><button class="primary-button" id="runButton" type="button" disabled><i data-lucide="captions"></i><span>转写并生成字幕</span></button><button class="danger-button" id="cancelButton" type="button" hidden title="取消" aria-label="取消"><i data-lucide="square"></i></button></div>
+      <p class="run-status" id="runStatus" aria-live="polite">等待宿主与模型</p>
+    </section>
+  </main>
+
+  <dialog id="messageDialog"><form method="dialog"><div class="dialog-icon"><i data-lucide="circle-alert"></i></div><h2 id="dialogTitle">提示</h2><p id="dialogMessage"></p><div class="dialog-actions"><button value="cancel" class="secondary-button">关闭</button><button value="confirm" class="primary-button compact" id="dialogConfirmButton">确认</button></div></form></dialog>
+  <dialog id="aepDialog" class="picker-dialog">
+    <form method="dialog">
+      <header class="picker-header">
+        <div><small id="aepFileName">AEP 模板</small><h2 id="aepDialogTitle">选择合成</h2></div>
+        <button type="submit" value="cancel" class="icon-button" title="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+      </header>
+      <div class="picker-list" id="aepCompList" role="radiogroup" aria-label="AEP 合成"></div>
+      <div class="picker-list" id="aepLayerList" aria-label="文本图层" hidden></div>
+      <footer class="dialog-actions picker-actions">
+        <button type="button" class="secondary-button" id="aepBackButton" hidden><i data-lucide="arrow-left"></i><span>返回</span></button>
+        <span class="picker-count" id="aepPickerCount"></span>
+        <button type="button" class="primary-button compact" id="aepNextButton">下一步</button>
+      </footer>
+    </form>
+  </dialog>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+{
+    "schemaVersion":  "1.0",
+    "productVersion":  "2.0.0",
+    "generatedAt":  "2026-08-27T01:27:22.7714356Z",
+    "integrityAlgorithm":  "SHA-256",
+    "runtimes":  [
+                     {
+                         "id":  "whispercpp-b4938-win-x64-cpu",
+                         "displayName":  "whisper.cpp b4938 CPU (Windows x64)",
+                         "version":  "b4938",
+                         "kind":  "runtime",
+                         "backend":  "cpu",
+                         "architecture":  "x64",
+                         "format":  "zip",
+                         "localPath":  "runtimes/whisper-bin-x64-b4938.zip",
+                         "entryPoint":  "whisper-cli.exe",
+                         "sha256":  "c2a4b60edb11f7e11a9191ffb50929535527d4d91c9903dbe3e554583bbbc63d",
+                         "size":  8361840,
+                         "bundled":  true,
+                         "required":  false,
+                         "recommended":  false,
+                         "downloadUrl":  "https://github.com/ggml-org/whisper.cpp/releases/download/b4938/whisper-bin-x64.zip",
+                         "sourceUrl":  "https://github.com/ggml-org/whisper.cpp/tree/b4938",
+                         "licenseIds":  [
+                                            "whispercpp-mit"
+                                        ]
+                         },
+                     {
+                         "id":  "whispercpp-vulkan-v1.0.0-win-x64",
+                         "displayName":  "whisper.cpp Vulkan GPU/CPU (Windows x64)",
+                         "version":  "v1.0.0",
+                         "kind":  "runtime",
+                         "backend":  "vulkan",
+                         "architecture":  "x64",
+                         "format":  "zip",
+                         "localPath":  "runtimes/whisper-vulkan-win-x64-v1.0.0.zip",
+                         "entryPoint":  "whisper-cli.exe",
+                         "sha256":  "a5d408c72e460433b39875f74a0b6e27e60a3724301d478fe9873db7ff4098e0",
+                         "size":  18340920,
+                         "bundled":  true,
+                         "required":  false,
+                         "recommended":  false,
+                         "downloadUrl":  "https://github.com/jerryshell/whisper.cpp-windows-vulkan-bin/releases/download/v1.0.0/whisper.cpp-windows-vulkan.zip",
+                         "sourceUrl":  "https://github.com/jerryshell/whisper.cpp-windows-vulkan-bin/releases/tag/v1.0.0",
+                         "licenseIds":  [
+                                            "whispercpp-mit"
+                                        ]
+                     }
+                 ],
+    "models":  [
+                   {
+                       "id":  "ggml-large-v3-turbo-q5_0",
+                       "displayName":  "Whisper large-v3-turbo Q5_0",
+                       "version":  "large-v3-turbo-q5_0",
+                       "kind":  "model",
+                       "backend":  "whisper.cpp",
+                       "architecture":  "any",
+                       "format":  "ggml-bin",
+                       "localPath":  "models/ggml-large-v3-turbo-q5_0.bin",
+                       "entryPoint":  "",
+                       "sha256":  "9c7b9c6bf60cf555f34fe7d81e8643764ff03d2f60b6fa550f5630be52eef830",
+                       "size":  574041195,
+                       "bundled":  false,
+                       "required":  false,
+                       "recommended":  true,
+                       "downloadUrl":  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+                       "sourceUrl":  "https://huggingface.co/ggerganov/whisper.cpp/blob/main/README.md",
+                       "licenseIds":  [
+                                          "recommended-model-upstream"
+                                      ]
+                   }
+               ],
+    "licenses":  [
+                     {
+                         "id":  "whispercpp-mit",
+                         "component":  "whisper.cpp b4938",
+                         "spdxId":  "MIT",
+                         "textPath":  "licenses/whisper.cpp-MIT.txt",
+                         "sourceUrl":  "https://github.com/ggml-org/whisper.cpp/blob/b4938/LICENSE"
+                     },
+                     {
+                         "id":  "recommended-model-upstream",
+                         "component":  "Recommended model (not bundled)",
+                         "spdxId":  "NOASSERTION",
+                         "textPath":  "licenses/recommended-model-NOTICE.txt",
+                         "sourceUrl":  "https://huggingface.co/ggerganov/whisper.cpp/blob/main/README.md"
+                     }
+                 ]
+}

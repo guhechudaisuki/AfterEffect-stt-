@@ -1,0 +1,31 @@
+node_modules/
+dist/
+artifacts/
+installer/artifacts/
+installer/obj/
+installer/bin/
+bin/
+obj/
+.vs/
+.idea/
+extension/python/__pycache__/
+*.pyc
+*.partial
+*.log
+*.tmp
+*.user
+*.suo
+
+# Local model files and downloaded runtime caches
+models/
+*.gguf
+*.bin
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.onnx
+*.part
+
+# Internal planning notes are not part of the public repository
+IMPLEMENTATION_PLAN.md

@@ -1,0 +1,19 @@
+{
+  "name": "local-whisper-subtitles",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Local Whisper subtitles for Adobe After Effects and Premiere Pro",
+  "scripts": {
+    "test": "node --test tests/*.test.js tests/contract/*.test.js",
+    "test:ui": "node --test tests/ui/*.test.js",
+    "test:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/installer/run-installer-tests.ps1",
+    "build": "powershell -ExecutionPolicy Bypass -File tools/build-installer.ps1",
+    "check": "node tools/check-js.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.62.1"
+  }
+}

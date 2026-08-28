@@ -1,0 +1,9 @@
+The recommended ggml-large-v3-turbo-q5_0 model is not bundled with this product.
+
+Before downloading, the user must review the current model card, source, terms,
+and license published by the upstream repository:
+
+https://huggingface.co/ggerganov/whisper.cpp/blob/main/README.md
+
+The installer does not download this model. The URL in manifest.json is shown
+only as recommendation metadata for an explicit user-initiated action.

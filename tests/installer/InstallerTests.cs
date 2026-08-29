@@ -51,6 +51,10 @@ namespace LocalWhisperSubtitles.Setup
                 Assert(state.modelPath == options.ModelPath, "Selected model path was not preserved by installer state.");
                 InstallState quickState = new InstallState { modelDestinationFolder = @"X:\models" };
                 Assert(quickState.modelDestinationFolder == @"X:\models", "Quick-install model destination was not preserved by installer state.");
+                quickState.installWhisperCppVadModel = true;
+                Assert(quickState.installWhisperCppVadModel, "Quick-install VAD ownership was not preserved by installer state.");
+                quickState.whisperCppVadModelSha256 = "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987";
+                Assert(quickState.whisperCppVadModelSha256.Length == 64, "Quick-install VAD hash was not preserved by installer state.");
             });
             Run("recommended model metadata has pinned download integrity", delegate
             {
@@ -58,7 +62,40 @@ namespace LocalWhisperSubtitles.Setup
                 Assert(model != null && model.downloadUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase), "Recommended model HTTPS URL is missing.");
                 Assert(model.size > 0 && !string.IsNullOrWhiteSpace(model.sha256) && model.sha256.Length == 64, "Recommended model integrity metadata is missing.");
             });
+            Run("bundled whisper.cpp VAD model has pinned integrity", delegate
+            {
+                ResourceCatalog catalog = ResourceCatalog.Load(args[0]);
+                ResourcePackage vadModel = catalog.FindRecommendedVadModel();
+                Assert(vadModel != null, "Recommended whisper.cpp VAD model metadata is missing.");
+                Assert(vadModel.bundled, "Quick STT needs the whisper.cpp VAD model in the external resource bundle.");
+                Assert(!vadModel.required, "VAD must remain optional for custom and AE effect-copy-only installs.");
+                Assert(string.Equals(Path.GetFileName(vadModel.localPath), "ggml-silero-v6.2.0.bin", StringComparison.OrdinalIgnoreCase),
+                    "The bundled VAD model must preserve its official upstream file name.");
+                ResourceValidation validation = catalog.Validate(vadModel);
+                Assert(validation.IsValid, validation.Error);
+                Assert(vadModel.size == 885098, "Unexpected Silero VAD model size.");
+                Assert(string.Equals(vadModel.sha256, "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987", StringComparison.OrdinalIgnoreCase),
+                    "Unexpected Silero VAD model SHA-256.");
+            });
+            Run("VAD model ids share the global resource namespace", TestVadModelIdsShareGlobalNamespace);
             Console.WriteLine("PASS: {0} installer tests", _passed);
+        }
+
+        private static void TestVadModelIdsShareGlobalNamespace()
+        {
+            string root = NewTempRoot();
+            try
+            {
+                File.WriteAllText(Path.Combine(root, "manifest.json"),
+                    "{\"schemaVersion\":\"1.0\",\"integrityAlgorithm\":\"SHA-256\","
+                    + "\"runtimes\":[{\"id\":\"duplicate\"}],\"models\":[],"
+                    + "\"vadModels\":[{\"id\":\"duplicate\"}],\"licenses\":[]}");
+                bool rejected = false;
+                try { ResourceCatalog.Load(root); }
+                catch (InvalidDataException) { rejected = true; }
+                Assert(rejected, "A VAD model id duplicated from another resource category was accepted.");
+            }
+            finally { SafeFileSystem.DeleteDirectory(root); }
         }
 
         private static void TestZipTraversal()

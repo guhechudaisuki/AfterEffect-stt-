@@ -27,5 +27,9 @@ models/
 *.onnx
 *.part
 
+# The pinned sub-megabyte whisper.cpp VAD resource is part of the installer bundle.
+!resources/vad/
+!resources/vad/ggml-silero-v6.2.0.bin
+
 # Internal planning notes are not part of the public repository
 IMPLEMENTATION_PLAN.md

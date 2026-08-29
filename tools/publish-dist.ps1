@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $SourceRoot) { $SourceRoot = Join-Path $repoRoot 'installer\artifacts' }
-if (-not $DestinationRoot) { $DestinationRoot = Join-Path $repoRoot 'dist\LocalWhisperSubtitles-2.0.0-win-x64' }
+if (-not $DestinationRoot) { $DestinationRoot = Join-Path $repoRoot 'dist\LocalWhisperSubtitles-3.0.0-win-x64' }
 $source = [System.IO.Path]::GetFullPath($SourceRoot)
 $destination = [System.IO.Path]::GetFullPath($DestinationRoot)
 $repoPrefix = $repoRoot.TrimEnd('\') + '\'

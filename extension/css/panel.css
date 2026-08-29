@@ -1420,25 +1420,35 @@ svg {
     max-width: none;
     margin: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    /* Keep document order when a panel expands.  Dense backfilling can move a
-       later AEP panel into an earlier empty column, making it jump above the
-       controls that precede it in the interaction flow. */
-    grid-auto-flow: row;
-    grid-auto-rows: 1px;
+    /* Explicit areas keep the two-column desktop layout while making the
+       template row grow with its contents. Implicit 1px rows allowed a
+       full-width control to be placed inside an expanded neighbouring panel. */
+    grid-template-areas:
+      "header header"
+      "status status"
+      "effects template"
+      "transcription transcription"
+      "range model"
+      "translation style"
+      "output style";
+    grid-template-rows: auto auto auto auto auto auto auto;
+    /* Keep intrinsic row positions stable when the shell is taller than its
+       contents; stretching auto tracks would move the upper panels whenever
+       a details element is opened. */
+    align-content: start;
     align-items: start;
   }
 
-  .app-header,
-  .status-strip,
-  .primary-tool,
-  .transcription-switch { grid-column: 1 / -1; }
-  .range-section,
-  .translation-section,
-  .output-section,
-  #effectCopyDetails { grid-column: 1; }
-  .model-section,
-  .style-section,
-  #templateDetails { grid-column: 2; }
+  .app-header { grid-area: header; }
+  .status-strip { grid-area: status; }
+  #effectCopyDetails { grid-area: effects; }
+  #templateDetails { grid-area: template; }
+  .transcription-switch { grid-area: transcription; }
+  .range-section { grid-area: range; }
+  .model-section { grid-area: model; }
+  .translation-section { grid-area: translation; }
+  .style-section { grid-area: style; }
+  .output-section { grid-area: output; }
 
   .control-section,
   .host-tool {

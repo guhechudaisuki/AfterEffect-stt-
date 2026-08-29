@@ -1,6 +1,6 @@
 {
     "schemaVersion":  "1.0",
-    "productVersion":  "2.0.0",
+    "productVersion":  "3.0.0",
     "generatedAt":  "2026-08-27T01:27:22.7714356Z",
     "integrityAlgorithm":  "SHA-256",
     "runtimes":  [
@@ -70,6 +70,29 @@
                                       ]
                    }
                ],
+    "vadModels":  [
+                       {
+                           "id":  "whispercpp-silero-v6.2.0",
+                           "displayName":  "Silero VAD v6.2.0 for whisper.cpp",
+                           "version":  "v6.2.0",
+                           "kind":  "vad-model",
+                           "backend":  "whisper.cpp",
+                           "architecture":  "any",
+                           "format":  "ggml-bin",
+                           "localPath":  "vad/ggml-silero-v6.2.0.bin",
+                           "entryPoint":  "ggml-silero-v6.2.0.bin",
+                           "sha256":  "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987",
+                           "size":  885098,
+                           "bundled":  true,
+                           "required":  false,
+                           "recommended":  true,
+                           "downloadUrl":  "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin",
+                           "sourceUrl":  "https://huggingface.co/ggml-org/whisper-vad",
+                           "licenseIds":  [
+                                              "silero-vad-mit"
+                                          ]
+                       }
+                   ],
     "licenses":  [
                      {
                          "id":  "whispercpp-mit",
@@ -84,6 +107,13 @@
                          "spdxId":  "NOASSERTION",
                          "textPath":  "licenses/recommended-model-NOTICE.txt",
                          "sourceUrl":  "https://huggingface.co/ggerganov/whisper.cpp/blob/main/README.md"
+                     },
+                     {
+                         "id":  "silero-vad-mit",
+                         "component":  "Silero VAD v6.2.0",
+                         "spdxId":  "MIT",
+                         "textPath":  "licenses/silero-vad-MIT.txt",
+                         "sourceUrl":  "https://github.com/snakers4/silero-vad/blob/master/LICENSE"
                      }
                  ]
 }

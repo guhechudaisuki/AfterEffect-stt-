@@ -47,6 +47,9 @@ function validateJob(job) {
     throw errors.makeError(errors.ERROR_CODES.INVALID_REQUEST, "audioInput.playbackRate must be a positive number");
   }
   if (job.preprocessing !== undefined && !isObject(job.preprocessing)) throw errors.makeError(errors.ERROR_CODES.INVALID_REQUEST, "preprocessing must be an object");
+  if (job.preprocessing && job.preprocessing.speechIsolation !== undefined && typeof job.preprocessing.speechIsolation !== "boolean") {
+    throw errors.makeError(errors.ERROR_CODES.INVALID_REQUEST, "preprocessing.speechIsolation must be a boolean");
+  }
   if (job.preprocessing && job.preprocessing.uvr5Enabled) {
     if (!isObject(job.preprocessing.uvr5Model)) throw errors.makeError(errors.ERROR_CODES.INVALID_REQUEST, "preprocessing.uvr5Model is required");
     requireString(job.preprocessing.uvr5Model.path, "preprocessing.uvr5Model.path");
@@ -68,6 +71,27 @@ function validateJob(job) {
   }
   job.transcription.wordTimestamps = true;
   job.transcription.vad = true;
+  if (job.transcription.speechIsolation !== undefined && typeof job.transcription.speechIsolation !== "boolean") {
+    throw errors.makeError(errors.ERROR_CODES.INVALID_REQUEST, "transcription.speechIsolation must be a boolean");
+  }
+  if (job.transcription.temperatureFallback !== undefined && typeof job.transcription.temperatureFallback !== "boolean") {
+    throw errors.makeError(errors.ERROR_CODES.INVALID_REQUEST, "transcription.temperatureFallback must be a boolean");
+  }
+  ["initialPrompt", "hotwords"].forEach(function (field) {
+    var value = job.transcription[field];
+    if (value !== undefined && value !== null && (typeof value !== "string" || value.length > 4096)) {
+      throw errors.makeError(errors.ERROR_CODES.INVALID_REQUEST, "transcription." + field + " must be a string up to 4096 characters");
+    }
+  });
+  if (job.transcription.beamSize !== undefined && (!isInteger(job.transcription.beamSize) || job.transcription.beamSize < 1 || job.transcription.beamSize > 20)) {
+    throw errors.makeError(errors.ERROR_CODES.INVALID_REQUEST, "transcription.beamSize must be an integer from 1 to 20");
+  }
+  ["speechRegionPaddingMs", "speechRegionMergeGapMs"].forEach(function (field) {
+    var value = job.transcription[field];
+    if (value !== undefined && (typeof value !== "number" || !isFinite(value) || value < 0 || value > 2000)) {
+      throw errors.makeError(errors.ERROR_CODES.INVALID_REQUEST, "transcription." + field + " must be between 0 and 2000 ms");
+    }
+  });
   if (job.segmentation === undefined) job.segmentation = {};
   if (!isObject(job.segmentation)) throw errors.makeError(errors.ERROR_CODES.INVALID_REQUEST, "segmentation must be an object");
   if (job.segmentation.maxCharsPerLine === undefined) job.segmentation.maxCharsPerLine = 0;

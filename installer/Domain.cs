@@ -7,7 +7,7 @@ namespace LocalWhisperSubtitles.Setup
     internal static class ProductInfo
     {
         public const string Name = "Local Whisper Subtitles";
-        public const string Version = "2.0.0";
+        public const string Version = "3.0.0";
         public const string ExtensionId = "com.localwhisper.subtitles";
         // Adobe product major versions are not year numbers: 2020 = 17.x,
         // 2021 = 18.x, 2022 = 22.x, and newer releases follow 23.x, 24.x...
@@ -31,6 +31,7 @@ namespace LocalWhisperSubtitles.Setup
         public string ExtensionPath { get; private set; }
         public string InstallRoot { get; private set; }
         public string RuntimeRoot { get; private set; }
+        public string VadRoot { get; private set; }
         public string MetadataRoot { get; private set; }
         public string InstallStatePath { get; private set; }
         public string InstalledUninstallerPath { get; private set; }
@@ -46,6 +47,7 @@ namespace LocalWhisperSubtitles.Setup
                 ExtensionPath = Path.Combine(appData, "Adobe", "CEP", "extensions", ProductInfo.ExtensionId),
                 InstallRoot = installRoot,
                 RuntimeRoot = Path.Combine(installRoot, "runtime"),
+                VadRoot = Path.Combine(installRoot, "vad"),
                 MetadataRoot = Path.Combine(installRoot, "resources"),
                 InstallStatePath = Path.Combine(installRoot, "install-state.json"),
                 InstalledUninstallerPath = Path.Combine(installRoot, "Uninstall.exe")
@@ -61,6 +63,7 @@ namespace LocalWhisperSubtitles.Setup
         public string integrityAlgorithm { get; set; }
         public List<ResourcePackage> runtimes { get; set; }
         public List<ResourcePackage> models { get; set; }
+        public List<ResourcePackage> vadModels { get; set; }
         public List<ResourceLicense> licenses { get; set; }
     }
 
@@ -120,6 +123,7 @@ namespace LocalWhisperSubtitles.Setup
         public ResourceValidation CpuRuntime { get; set; }
         public ResourceValidation VulkanRuntime { get; set; }
         public ResourceValidation RecommendedModel { get; set; }
+        public ResourceValidation WhisperCppVadModel { get; set; }
         public string ExistingRuntimePath { get; set; }
         public string ExistingVulkanRuntimePath { get; set; }
         public GpuRuntimeStatus GpuRuntime { get; set; }
@@ -174,9 +178,12 @@ namespace LocalWhisperSubtitles.Setup
         public bool installEffectCopy { get; set; }
         public bool installCpuRuntime { get; set; }
         public bool installVulkanRuntime { get; set; }
+        public bool installWhisperCppVadModel { get; set; }
         public string runtimePath { get; set; }
         public string runtimeId { get; set; }
         public string vulkanRuntimePath { get; set; }
+        public string whisperCppVadModelPath { get; set; }
+        public string whisperCppVadModelSha256 { get; set; }
         public string pythonExecutablePath { get; set; }
         public string modelPath { get; set; }
         public string modelDestinationFolder { get; set; }

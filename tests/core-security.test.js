@@ -349,7 +349,7 @@ test("runner sends UVR5 output into STT when cleaning is enabled", async functio
     modelDescriptor: { id: "fake-model", path: "model.bin", format: "ggml-bin", sizeBytes: 1024 },
     hardware: { gpu: false, gpus: [], cpu: { recommendedThreads: 2 } },
     audioPreprocessor: {
-      prepareAudio: function (_, output, __, options, callback) { calls.push(["prepare", output]); process.nextTick(function () { callback(null, output); }); return { cancel: function () {} }; },
+      prepareAudio: function (_, output, __, options, callback) { calls.push(["prepare", output, options.targetSampleRate || 16000, options.targetChannels || 1]); process.nextTick(function () { callback(null, output); }); return { cancel: function () {} }; },
       hasAudioSignal: function () { return true; },
       detectSpeechRegions: function () { return [{ startMs: 0, endMs: 300 }]; }
     },
@@ -373,8 +373,139 @@ test("runner sends UVR5 output into STT when cleaning is enabled", async functio
     }, function (error, value) { if (error) reject(error); else resolve(value); });
   });
   assert.equal(calls.some(function (call) { return call[0] === "uvr5"; }), true);
+  assert.equal(calls.some(function (call) { return call[0] === "prepare" && /uvr5-input\.wav$/.test(call[1]) && call[2] === 44100; }), true);
+  assert.equal(calls.some(function (call) { return call[0] === "uvr5" && /uvr5-input\.wav$/.test(call[1]); }), true);
   assert.equal(calls.some(function (call) { return call[0] === "stt" && /uvr5-vocal-16k\.wav$/.test(call[1]); }), true);
   assert.equal(result.engine.preprocessing.uvr5, true);
+});
+
+test("runner keeps the original waveform when VAD is only a boundary hint", async function () {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "lws-vad-hint-"));
+  var input = path.join(root, "input.wav");
+  var sampleRate = 16000;
+  var data = Buffer.alloc(sampleRate * 2 * 2);
+  for (var sample = 0; sample < sampleRate * 2; sample += 1) {
+    // A continuous low-level bed plus a quiet speech-like island.  A hard
+    // VAD mask would erase the bed and any speech that the detector missed.
+    var value = sample >= sampleRate * 0.75 && sample < sampleRate * 1.25 ? 2200 : 1000;
+    data.writeInt16LE(value, sample * 2);
+  }
+  var header = Buffer.alloc(44);
+  header.write("RIFF", 0, "ascii");
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write("WAVEfmt ", 8, "ascii");
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36, "ascii");
+  header.writeUInt32LE(data.length, 40);
+  fs.writeFileSync(input, Buffer.concat([header, data]));
+  var recognizedPath = null;
+  var runner = new runnerModule.TranscriptionRunner({
+    tempRoot: root,
+    runtimeDescriptor: { id: "fake", engine: "whisper.cpp", executable: "fake.exe", devices: ["cpu"] },
+    modelDescriptor: { id: "fake-model", path: "model.bin", format: "ggml-bin", sizeBytes: 1024 },
+    hardware: { gpu: false, gpus: [], cpu: { recommendedThreads: 2 } },
+    audioPreprocessor: {
+      prepareAudio: function (source, output, __, ___, callback) {
+        fs.copyFileSync(source, output);
+        process.nextTick(function () { callback(null, output); });
+        return { cancel: function () {} };
+      },
+      hasAudioSignal: function () { return true; },
+      detectSpeechRegions: function () { return [{ startMs: 750, endMs: 1250 }]; }
+    },
+    adapters: {
+      "whisper.cpp": {
+        run: function (_, request, __, callback) {
+          recognizedPath = request.audioPath;
+          process.nextTick(function () {
+            callback(null, { language: "en", segments: [{ id: "raw-0", startMs: 0, endMs: 300, text: "hello", words: [{ text: "hello", startMs: 0, endMs: 300 }] }] });
+          });
+          return { cancel: function () {} };
+        }
+      }
+    }
+  });
+  var result = await new Promise(function (resolve, reject) {
+    runner.run({
+      schemaVersion: 1,
+      jobId: "vad-hint-job",
+      audioInput: { path: input, timelineInMs: 0, timelineOutMs: 2000, alreadyTrimmed: true },
+      model: { id: "fake-model", path: "model.bin", format: "ggml-bin" },
+      runtime: { id: "fake", engine: "whisper.cpp", executable: "fake.exe" },
+      transcription: { language: "auto", devicePolicy: "auto", wordTimestamps: true, vad: true },
+      segmentation: { mode: "smart", maxCharsPerLine: 0, maxLines: null },
+      translation: { mode: "source", targetLanguages: [] }
+    }, function (error, value) { if (error) reject(error); else resolve(value); });
+  });
+  assert.equal(result.status, "completed");
+  assert.ok(recognizedPath);
+  assert.equal(path.basename(recognizedPath), "audio.wav");
+  assert.notEqual(path.basename(recognizedPath), "speech-isolated.wav");
+  assert.equal(result.engine.preprocessing.speechIsolation, false);
+});
+
+test("runner fuses energy boundaries but reserves independent clips for neural VAD", async function () {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "lws-vad-plan-"));
+  var input = path.join(root, "input.wav");
+  var sampleRate = 16000;
+  var data = Buffer.alloc(sampleRate * 2 * 2);
+  for (var sample = 0; sample < sampleRate * 2; sample += 1) data.writeInt16LE(sample >= sampleRate * 0.2 && sample < sampleRate * 0.8 ? 10000 : 0, sample * 2);
+  var header = Buffer.alloc(44);
+  header.write("RIFF", 0, "ascii");
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write("WAVEfmt ", 8, "ascii");
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36, "ascii");
+  header.writeUInt32LE(data.length, 40);
+  fs.writeFileSync(input, Buffer.concat([header, data]));
+  var requestSeen;
+  var runner = new runnerModule.TranscriptionRunner({
+    tempRoot: root,
+    runtimeDescriptor: { id: "fake", engine: "whisper.cpp", executable: "fake.exe", devices: ["cpu"] },
+    modelDescriptor: { id: "fake-model", path: "model.bin", format: "ggml-bin", sizeBytes: 1024 },
+    hardware: { gpu: false, gpus: [], cpu: { recommendedThreads: 2 } },
+    whispercppVadModelPath: path.join(root, "silero.bin"),
+    audioPreprocessor: {
+      prepareAudio: function (source, output, __, ___, callback) { fs.copyFileSync(source, output); process.nextTick(function () { callback(null, output); }); return { cancel: function () {} }; },
+      hasAudioSignal: function () { return true; },
+      detectSpeechRegions: function () { return [{ startMs: 1200, endMs: 1600 }]; }
+    },
+    speechVad: { detect: function (_, __, ___, ____, callback) { process.nextTick(function () { callback(null, [{ startMs: 200, endMs: 800 }]); }); return { cancel: function () {} }; } },
+    vadDescriptor: { modelPath: path.join(root, "vad-model"), pythonExecutable: "python.exe", bridgePath: "vad.py" },
+    adapters: { "whisper.cpp": { run: function (_, request, __, callback) {
+      requestSeen = request;
+      process.nextTick(function () { callback(null, { language: "en", segments: [{ id: "raw-0", startMs: 250, endMs: 700, text: "hello", words: [{ text: "hello", startMs: 250, endMs: 700 }] }] }); });
+      return { cancel: function () {} };
+    } } }
+  });
+  await new Promise(function (resolve, reject) {
+    runner.run({
+      schemaVersion: 1,
+      jobId: "vad-plan-job",
+      audioInput: { path: input, timelineInMs: 0, timelineOutMs: 2000, alreadyTrimmed: true },
+      model: { id: "fake-model", path: "model.bin", format: "ggml-bin" },
+      runtime: { id: "fake", engine: "whisper.cpp", executable: "fake.exe" },
+      transcription: { language: "auto", devicePolicy: "auto", wordTimestamps: true, vad: true },
+      segmentation: { mode: "smart", maxCharsPerLine: 0, maxLines: null },
+      translation: { mode: "source", targetLanguages: [] }
+    }, function (error) { if (error) reject(error); else resolve(); });
+  });
+  assert.ok(requestSeen);
+  assert.equal(requestSeen.vad, false, "external VAD clip must disable a second whisper.cpp VAD");
+  assert.deepEqual(requestSeen.decodeRegions, [{ startMs: 200, endMs: 800 }]);
+  assert.ok(requestSeen.speechBoundaryHints.some(function (region) { return region.startMs === 1200 && region.endMs === 1600; }));
 });
 
 test("translation reuses the source language without making an HTTP request", async function () {

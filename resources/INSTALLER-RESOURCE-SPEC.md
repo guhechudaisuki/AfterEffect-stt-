@@ -12,9 +12,9 @@ Host detection uses registry locations only as candidates. A host counts as supp
 
 ## Transaction boundary
 
-Extension and runtime directories are extracted to an incoming sibling directory. Existing targets are renamed to unique backup directories before the incoming directory is renamed into place. Registry and file changes keep rollback snapshots until all self-checks complete. A failed install restores the prior extension, runtime, install state, and registry values.
+Extension and runtime directories are extracted to an incoming sibling directory. Existing targets are renamed to unique backup directories before the incoming directory is renamed into place. The quick-STT Silero VAD resource is copied through the same transaction after manifest size and SHA-256 validation. Registry and file changes keep rollback snapshots until all self-checks complete. A failed install restores the prior extension, runtime, managed VAD file, install state, and registry values.
 
-Uninstall removes the CEP extension, managed runtime, installed provenance files, install state, and uninstall registration. It intentionally preserves:
+Uninstall removes the CEP extension, managed runtime, managed VAD file, installed provenance files, install state, and uninstall registration. It intentionally preserves:
 
 - all external models and paths;
 - the product model directory, if a user created it;

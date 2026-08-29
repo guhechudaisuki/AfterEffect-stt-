@@ -1021,7 +1021,20 @@
 
   function findWhisperCppVadModel() {
     var managed = path.join(process.env.LOCALAPPDATA || os.homedir(), "LocalWhisperSubtitles", "vad");
-    var candidates = [path.join(managed, "silero-vad.bin"), path.join(root, "..", "resources", "vad", "silero-vad.bin")];
+    var bundled = path.join(root, "..", "resources", "vad");
+    var candidates = [
+      path.join(managed, "silero-vad.bin"),
+      path.join(managed, "ggml-silero-v6.2.0.bin"),
+      path.join(root, "..", "resources", "vad", "ggml-silero-v6.2.0.bin"),
+      path.join(bundled, "silero-vad.bin")
+    ];
+    [managed, bundled].forEach(function (directory) {
+      try {
+        fs.readdirSync(directory).sort().forEach(function (name) {
+          if (/^ggml-silero-v[0-9.]+\.bin$/i.test(name)) candidates.push(path.join(directory, name));
+        });
+      } catch (ignoreDirectory) {}
+    });
     return candidates.filter(function (candidate) { return fs.existsSync(candidate); })[0] || null;
   }
 
@@ -1139,47 +1152,30 @@
 
   function installAdaptiveGrid() {
     var shell = document.querySelector(".panel-shell");
+    if (!shell) return;
+
     // Keep the AE template tool beside the effect tool in the first desktop
     // row.  It is declared near the output controls for accessibility, but
-    // moving it before the full-width transcription section lets grid auto
-    // placement reserve its column before later panels are laid out.
+    // moving it before the full-width transcription section keeps the mobile
+    // reading order aligned with the desktop interaction flow.
     var template = document.getElementById("templateDetails");
     var transcription = document.getElementById("transcriptionDetails");
     if (shell && template && transcription && template.parentNode === shell) shell.insertBefore(template, transcription);
-    var media = window.matchMedia ? window.matchMedia("(min-width: 720px)") : null;
-    var resizeFrame = null;
-    function resizeItem(item) {
-      if (!item || item.classList.contains("run-section")) return;
-      if (!media || !media.matches) {
+
+    // Grid rows are sized intrinsically by the explicit desktop template in
+    // panel.css.  Do not convert pixel heights into grid-row spans: a span is
+    // a number of tracks, not a CSS pixel value, and doing so creates hundreds
+    // of implicit one-pixel rows that overlap neighbouring panels.  Clear any
+    // stale inline value left by an older panel session when the viewport
+    // changes between desktop and compact layouts.
+    function clearGridOverrides() {
+      Array.prototype.forEach.call(shell.children, function (item) {
         item.style.gridRowEnd = "";
-        return;
-      }
-      var computed = window.getComputedStyle(item);
-      var outerHeight = item.scrollHeight +
-        parseFloat(computed.borderTopWidth || 0) + parseFloat(computed.borderBottomWidth || 0) +
-        parseFloat(computed.marginTop || 0) + parseFloat(computed.marginBottom || 0);
-      item.style.gridRowEnd = "span " + Math.max(1, Math.ceil(outerHeight));
-    }
-    function resizeAll() { Array.prototype.forEach.call(shell.children, resizeItem); }
-    function scheduleResize() {
-      if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
-      resizeFrame = window.requestAnimationFrame(function () {
-        resizeAll();
-        resizeFrame = window.requestAnimationFrame(function () {
-          resizeFrame = null;
-          resizeAll();
-        });
+        item.style.gridColumnEnd = "";
       });
     }
-    if (window.ResizeObserver) {
-      var observer = new ResizeObserver(function (entries) { entries.forEach(function (entry) { resizeItem(entry.target); }); });
-      Array.prototype.forEach.call(shell.children, function (item) { if (!item.classList.contains("run-section")) observer.observe(item); });
-    }
-    Array.prototype.forEach.call(document.querySelectorAll("details"), function (details) { details.addEventListener("toggle", scheduleResize); });
-    if (media && media.addEventListener) media.addEventListener("change", scheduleResize);
-    else if (media && media.addListener) media.addListener(scheduleResize);
-    window.addEventListener("resize", scheduleResize);
-    scheduleResize();
+    clearGridOverrides();
+    window.addEventListener("resize", clearGridOverrides);
   }
 
   function initialize() {

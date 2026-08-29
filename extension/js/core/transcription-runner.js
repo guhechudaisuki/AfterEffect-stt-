@@ -52,6 +52,30 @@ function cleanupAttemptFiles(store) {
   });
 }
 
+function finiteNumber(value, fallback) {
+  return typeof value === "number" && isFinite(value) ? value : fallback;
+}
+
+function audioDurationMs(audioPreprocessor, audioPath, fallback) {
+  try {
+    if (audioPreprocessor && typeof audioPreprocessor.inspectWav === "function") {
+      var info = audioPreprocessor.inspectWav(audioPath);
+      if (info && info.valid && info.hasData && Number(info.sampleRate) > 0) {
+        return Math.max(0, Number(info.dataSize) / (Number(info.sampleRate) * 2) * 1000);
+      }
+    }
+  } catch (ignore) {}
+  return Math.max(0, finiteNumber(fallback, 0));
+}
+
+function normaliseRegions(regions, durationMs, paddingMs, mergeGapMs) {
+  try {
+    return speechIsolator.normalizeRegions(regions, durationMs, paddingMs, mergeGapMs);
+  } catch (ignore) {
+    return [];
+  }
+}
+
 function resolveApiKey(resolver, reference, callback) {
   if (!reference || !resolver) return process.nextTick(function () { callback(null, null); });
   var called = false;
@@ -117,7 +141,7 @@ TranscriptionRunner.prototype.run = function (job, callback) {
     self.emitProgress(job.jobId, "preparingAudio", 100);
     if (audioPreprocessor.hasAudioSignal) {
       var hasSignal = true;
-      try { hasSignal = audioPreprocessor.hasAudioSignal(wavPath, { threshold: 8 }); } catch (signalError) { hasSignal = true; }
+      try { hasSignal = audioPreprocessor.hasAudioSignal(wavPath, { threshold: 2 }); } catch (signalError) { hasSignal = true; }
       if (!hasSignal) {
         state.warnings.push(errors.warning(errors.ERROR_CODES.AUDIO_NO_SIGNAL, "该图层没有检测到音频波形，已跳过 STT", { layerId: job.audioInput.layerId || null }));
         return saveResult({
@@ -134,26 +158,47 @@ TranscriptionRunner.prototype.run = function (job, callback) {
       }
     }
     if (job.preprocessing && job.preprocessing.uvr5Enabled) {
+      var uvrInputPath = store.path("uvr5-input.wav");
       var vocalPath = store.path("uvr5-vocal.wav");
-      self.emitProgress(job.jobId, "separatingVocals", 0);
-      state.controller = uvr5Preprocessor.separate(wavPath, vocalPath, job.preprocessing.uvr5Model, {
-        bridgePath: self.options.uvr5BridgePath,
-        ffmpegPath: ffmpeg,
-        devicePolicy: job.transcription.devicePolicy,
+      // UVR5 receives a 44.1 kHz conformed copy instead of the 16 kHz STT
+      // waveform.  Separation models need upper-band detail; downsampling
+      // before separation creates avoidable artifacts and lost consonants.
+      state.controller = audioPreprocessor.prepareAudio(job.audioInput.path, uvrInputPath, ffmpeg, {
+        startMs: job.audioInput.sourceStartMs,
+        endMs: job.audioInput.sourceEndMs,
+        playbackRate: job.audioInput.playbackRate,
+        reverse: job.audioInput.reverse === true,
+        expectedDurationMs: job.audioInput.timelineOutMs - job.audioInput.timelineInMs,
+        targetSampleRate: 44100,
+        // Keep stereo for UVR5's separation model; downmix only its output
+        // for Whisper after the separation pass. Reversal is supported for
+        // both channel layouts by the PCM helper.
+        targetChannels: 2,
         cancelled: function () { return state.cancelled; },
-        onEvent: function (uvrEvent) { self.emitProgress(job.jobId, "separatingVocals", uvrEvent.percent === undefined ? null : uvrEvent.percent, uvrEvent); }
-      }, function (uvrError) {
-        if (uvrError) return finish(uvrError);
-        if (state.cancelled) return finish(errors.makeError(errors.ERROR_CODES.JOB_CANCELED, "任务已取消"));
-        var vocal16kPath = store.path("uvr5-vocal-16k.wav");
-        state.controller = audioPreprocessor.prepareAudio(vocalPath, vocal16kPath, ffmpeg, {
+        onStderr: function (chunk) { self.emit("log", { jobId: job.jobId, phase: "separatingVocals", text: errors.redactText(chunk) }); }
+      }, function (uvrInputError) {
+        if (uvrInputError) return finish(uvrInputError);
+        self.emitProgress(job.jobId, "separatingVocals", 0);
+        state.controller = uvr5Preprocessor.separate(uvrInputPath, vocalPath, job.preprocessing.uvr5Model, {
+          bridgePath: self.options.uvr5BridgePath,
+          ffmpegPath: ffmpeg,
+          devicePolicy: job.transcription.devicePolicy,
           cancelled: function () { return state.cancelled; },
-          onStderr: function (chunk) { self.emit("log", { jobId: job.jobId, phase: "separatingVocals", text: errors.redactText(chunk) }); }
-        }, function (vocalConvertError) {
-          if (vocalConvertError) return finish(vocalConvertError);
-          state.preprocessing.uvr5 = true;
-          state.preprocessing.inputPath = vocal16kPath;
-          runWithSpeechDetection(device, false, vocal16kPath);
+          onEvent: function (uvrEvent) { self.emitProgress(job.jobId, "separatingVocals", uvrEvent.percent === undefined ? null : uvrEvent.percent, uvrEvent); }
+        }, function (uvrError) {
+          if (uvrError) return finish(uvrError);
+          if (state.cancelled) return finish(errors.makeError(errors.ERROR_CODES.JOB_CANCELED, "任务已取消"));
+          var vocal16kPath = store.path("uvr5-vocal-16k.wav");
+          state.controller = audioPreprocessor.prepareAudio(vocalPath, vocal16kPath, ffmpeg, {
+            cancelled: function () { return state.cancelled; },
+            onStderr: function (chunk) { self.emit("log", { jobId: job.jobId, phase: "separatingVocals", text: errors.redactText(chunk) }); }
+          }, function (vocalConvertError) {
+            if (vocalConvertError) return finish(vocalConvertError);
+            state.preprocessing.uvr5 = true;
+            state.preprocessing.uvr5InputSampleRate = 44100;
+            state.preprocessing.inputPath = vocal16kPath;
+            runWithSpeechDetection(device, false, vocal16kPath);
+          });
         });
       });
       return;
@@ -175,40 +220,76 @@ TranscriptionRunner.prototype.run = function (job, callback) {
       }, function (vadError, regions) {
         if (vadError) {
           state.warnings.push(errors.warning(errors.ERROR_CODES.OUTPUT_INVALID, "FunASR VAD 失败，将使用本地能量边界", { reason: vadError.message }));
-          return runWithDevice(deviceChoice, fellBack, activeAudioPath, null);
+          return runWithDevice(deviceChoice, fellBack, activeAudioPath, null, "energy");
         }
-        runWithDevice(deviceChoice, fellBack, activeAudioPath, regions || []);
+        runWithDevice(deviceChoice, fellBack, activeAudioPath, regions || [], "funasr");
       });
       return;
     }
-    runWithDevice(deviceChoice, fellBack, activeAudioPath, null);
+    runWithDevice(deviceChoice, fellBack, activeAudioPath, null, "energy");
   }
 
-  function runWithDevice(deviceChoice, fellBack, activeAudioPath, detectedSpeechRegions) {
+  function runWithDevice(deviceChoice, fellBack, activeAudioPath, detectedSpeechRegions, detectionSource, regionPlan) {
     if (state.cancelled) return finish(errors.makeError(errors.ERROR_CODES.JOB_CANCELED, "任务已取消"));
     self.emitProgress(job.jobId, "loadingModel", 0, { device: deviceChoice.device });
-    var speechRegions = detectedSpeechRegions;
-    if (!Array.isArray(speechRegions) && typeof audioPreprocessor.detectSpeechRegions === "function") {
-      try {
-        speechRegions = audioPreprocessor.detectSpeechRegions(activeAudioPath, {
-          windowMs: 20,
-          bridgeMs: 100,
-          minSpeechMs: 60,
-          marginDb: 8,
-          minDb: -50
-        }) || [];
-      } catch (speechError) {
-        state.warnings.push(errors.warning(errors.ERROR_CODES.OUTPUT_INVALID, "语音边界检测失败，将使用 Whisper 词时间戳", { reason: speechError.message }));
+    var durationMs = audioDurationMs(audioPreprocessor, activeAudioPath, job.audioInput.timelineOutMs - job.audioInput.timelineInMs);
+    var plan = regionPlan;
+    if (!plan) {
+      var neuralRegions = Array.isArray(detectedSpeechRegions) ? detectedSpeechRegions : [];
+      var energyRegions = [];
+      if (typeof audioPreprocessor.detectSpeechRegions === "function") {
+        try {
+          // Energy VAD is deliberately a boundary hint.  It must never erase
+          // samples before Whisper because low-SNR speech may be missed by it.
+          energyRegions = audioPreprocessor.detectSpeechRegions(activeAudioPath, {
+            windowMs: 20,
+            bridgeMs: 160,
+            minSpeechMs: 60,
+            marginDb: 6,
+            hysteresisDb: 3,
+            lowStartMs: 100,
+            minDb: -54,
+            minPeak: 0.0015
+          }) || [];
+        } catch (speechError) {
+          state.warnings.push(errors.warning(errors.ERROR_CODES.OUTPUT_INVALID, "语音边界检测失败，将使用 Whisper 词时间戳", { reason: speechError.message }));
+        }
       }
+      var hasNeural = neuralRegions.length > 0;
+      var trustedRegions = hasNeural ? normaliseRegions(neuralRegions, durationMs, 0, 120) : [];
+      var boundaryRegions = normaliseRegions((hasNeural ? neuralRegions : []).concat(energyRegions), durationMs, 0, 120);
+      // Only neural VAD is trusted enough to create independent decode clips.
+      // Energy regions remain hints so quiet speech is not cut out.
+      // Keep the authoritative region unpadded here.  The Python bridge adds
+      // 240 ms only to the acoustic clip, then maps words back to this exact
+      // VAD boundary.  Padding twice would shift/clamp subtitle timing.
+      var decodeRegions = hasNeural ? normaliseRegions(neuralRegions, durationMs, 0, 180) : [];
+      plan = {
+        // Trusted regions are used only for conservative edge trimming.
+        speechRegions: trustedRegions,
+        speechBoundaryHints: boundaryRegions,
+        decodeRegions: decodeRegions,
+        source: hasNeural ? (energyRegions.length ? "funasr+energy" : "funasr") : (energyRegions.length ? "energy" : "none"),
+        neural: hasNeural
+      };
     }
+    var speechRegions = plan.speechRegions || [];
+    var speechBoundaryHints = plan.speechBoundaryHints || speechRegions;
+    var decodeRegions = plan.decodeRegions || [];
+    state.preprocessing.speechDetection = plan.source || detectionSource || "none";
+    state.preprocessing.speechRegionCount = speechBoundaryHints.length;
+    state.preprocessing.decodeRegionCount = decodeRegions.length;
     var recognitionAudioPath = activeAudioPath;
     if (state.preprocessing.speechIsolation && state.preprocessing.inputPath && fs.existsSync(state.preprocessing.inputPath)) {
       recognitionAudioPath = state.preprocessing.inputPath;
     }
-    if (Array.isArray(speechRegions) && speechRegions.length && !state.preprocessing.speechIsolation) {
+    // Isolation is an explicit opt-in diagnostic/cleanup mode.  The normal
+    // path preserves the original waveform and uses VAD only for boundaries.
+    var isolationRequested = !!(job.preprocessing && (job.preprocessing.speechIsolation === true || job.preprocessing.isolateSpeech === true)) || !!(job.transcription && job.transcription.speechIsolation === true);
+    if (isolationRequested && Array.isArray(decodeRegions) && decodeRegions.length && !state.preprocessing.speechIsolation) {
       var isolatedPath = store.path("speech-isolated.wav");
       try {
-        if (speechIsolator.isolatePcm16MonoWav(activeAudioPath, isolatedPath, speechRegions, { paddingMs: 80, mergeGapMs: 180 })) {
+        if (speechIsolator.isolatePcm16MonoWav(activeAudioPath, isolatedPath, decodeRegions, { paddingMs: 0, mergeGapMs: 180 })) {
           recognitionAudioPath = isolatedPath;
           state.preprocessing.speechIsolation = true;
           state.preprocessing.inputPath = isolatedPath;
@@ -229,12 +310,35 @@ TranscriptionRunner.prototype.run = function (job, callback) {
       computeType: computeTypeFor(runtime, job, deviceChoice.device),
       allowHybrid: deviceChoice.hybrid === true,
       modelSizeBytes: model.sizeBytes || null,
-      vad: runtime.engine === "whisper.cpp" ? !!self.options.whispercppVadModelPath : true,
+      // A trusted external clip and whisper.cpp's internal VAD are mutually
+      // exclusive; applying both gates can amplify false negatives.
+      vad: runtime.engine === "whisper.cpp"
+        ? !!self.options.whispercppVadModelPath
+          && (!runtime.capabilities || runtime.capabilities.vad !== false)
+          && !decodeRegions.length
+        : true,
       vadModelPath: runtime.engine === "whisper.cpp" ? (self.options.whispercppVadModelPath || null) : (self.options.vadModelPath || null),
+      vadOptions: {
+        threshold: 0.50,
+        minSpeechDurationMs: 100,
+        minSilenceDurationMs: 350,
+        maxSpeechDurationS: 28,
+        speechPadMs: 240,
+        samplesOverlap: 0.30
+      },
       // Python engines decode each VAD island independently. Regions are relative
       // to the conformed WAV, so the adapter can add the original timeline offset.
       speechRegions: Array.isArray(speechRegions) ? speechRegions : [],
-      speechRegionPaddingMs: 50
+      speechBoundaryHints: Array.isArray(speechBoundaryHints) ? speechBoundaryHints : [],
+      decodeRegions: Array.isArray(decodeRegions) ? decodeRegions : [],
+      speechRegionPaddingMs: finiteNumber(job.transcription.speechRegionPaddingMs, 240),
+      speechRegionMergeGapMs: finiteNumber(job.transcription.speechRegionMergeGapMs, 180),
+      initialPrompt: typeof job.transcription.initialPrompt === "string" ? job.transcription.initialPrompt : null,
+      hotwords: typeof job.transcription.hotwords === "string" ? job.transcription.hotwords : null,
+      beamSize: finiteNumber(job.transcription.beamSize, 5),
+      noSpeechThreshold: runtime.engine === "whisper.cpp" && !!self.options.whispercppVadModelPath && !decodeRegions.length ? 0.90 : 0.60,
+      temperatureFallback: job.transcription.temperatureFallback !== false,
+      speechRegionSource: plan.source || detectionSource || "none"
     };
     var adapterOptions = {
       cancelled: function () { return state.cancelled; },
@@ -247,7 +351,7 @@ TranscriptionRunner.prototype.run = function (job, callback) {
         state.warnings.push(errors.warning(errors.ERROR_CODES.GPU_OOM_FALLBACK_CPU, "显存不足，已切换 CPU"));
         self.emit("warning", state.warnings[state.warnings.length - 1]);
         cleanupAttemptFiles(store);
-        return runWithDevice({ device: "cpu", reason: "oomFallback" }, true, activeAudioPath, speechRegions);
+        return runWithDevice({ device: "cpu", reason: "oomFallback" }, true, activeAudioPath, null, null, plan);
       }
       if (runError && fellBack && state.gpuError) {
         return finish(errors.makeError(errors.ERROR_CODES.GPU_OOM_CPU_FAILED, "GPU 显存不足且 CPU 回退失败", { gpu: state.gpuError, cpu: errors.serializeError(runError) }));
@@ -263,6 +367,7 @@ TranscriptionRunner.prototype.run = function (job, callback) {
           maxLines: job.segmentation.maxLines,
           maxRelativeMs: job.audioInput.timelineOutMs - job.audioInput.timelineInMs,
           speechRegions: speechRegions,
+          speechBoundaryHints: speechBoundaryHints,
           speechEdgePaddingMs: 0
         });
         if (job.audioInput.reverse === true && typeof segmentUtils.mapCuesForReverse === "function") {

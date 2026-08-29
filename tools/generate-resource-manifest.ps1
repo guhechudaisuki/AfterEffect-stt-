@@ -39,7 +39,9 @@ if ($manifest.integrityAlgorithm -ne 'SHA-256') {
 }
 
 $ids = @{}
-$entries = @($manifest.runtimes) + @($manifest.models)
+$vadEntries = @()
+if ($null -ne $manifest.vadModels) { $vadEntries = @($manifest.vadModels) }
+$entries = @($manifest.runtimes) + @($manifest.models) + $vadEntries
 foreach ($entry in $entries) {
     if (-not $entry.id) { throw 'Every resource entry must have an id.' }
     $key = ([string]$entry.id).ToLowerInvariant()

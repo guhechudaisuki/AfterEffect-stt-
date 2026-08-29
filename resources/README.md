@@ -14,6 +14,10 @@ No speech model is bundled. `ggml-large-v3-turbo-q5_0` is marked as the recommen
 
 If a release manager intentionally adds a model to `models/`, set `bundled` to `true`, verify its redistribution license, and run the manifest generator. Do not publish a bundled model without legal review and an exact upstream revision.
 
+## Voice activity detection model
+
+Quick STT installation includes the pinned whisper.cpp Silero VAD model declared in `vadModels`. The release keeps the official file name `vad/ggml-silero-v6.2.0.bin` in the external resource bundle, verifies its exact size and SHA-256, then transactionally installs it as `%LOCALAPPDATA%\LocalWhisperSubtitles\vad\silero-vad.bin`. Custom installation does not require or replace this managed VAD file.
+
 ## Integrity workflow
 
 From the repository root:

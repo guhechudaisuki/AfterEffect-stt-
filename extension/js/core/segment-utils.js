@@ -230,7 +230,7 @@ function estimatedCues(raw) {
     var weight = Math.max(1, countGraphemes(part.replace(/\s/g, "")).length);
     var end = index === parts.length - 1 ? raw.endMs : cursor + duration * weight / totalWeight;
     var cue = {
-      sourceSegmentIds: [raw.id],
+      sourceSegmentIds: (raw.sourceSegmentIds || [raw.id]).slice(),
       relativeStartMs: Math.round(cursor),
       relativeEndMs: Math.round(end),
       sourceText: part,
@@ -288,7 +288,7 @@ function splitWords(words, raw, vadRegions, options) {
     var text = joinWordTexts(group);
     if (!text) return;
     cues.push({
-      sourceSegmentIds: [raw.id],
+      sourceSegmentIds: (raw.sourceSegmentIds || [raw.id]).slice(),
       relativeStartMs: group[0].startMs,
       relativeEndMs: group[group.length - 1].endMs,
       sourceText: text,
@@ -314,9 +314,60 @@ function normalizeRawSegments(rawSegments, maximumMs) {
       endMs: endMs,
       text: cleanText(raw.text),
       words: normalizeWords(raw.words, startMs, endMs),
-      vadRegions: raw.vadRegions || []
+      vadRegions: raw.vadRegions || [],
+      sourceSegmentIds: Array.isArray(raw.sourceSegmentIds) && raw.sourceSegmentIds.length ? raw.sourceSegmentIds.slice() : [raw.id || "raw-" + index]
     };
   }).filter(function (raw) { return raw.text || raw.words.length; }).sort(function (a, b) { return a.startMs - b.startMs; });
+}
+
+function rawRegionIndex(timeMs, regions) {
+  var value = number(timeMs, 0);
+  for (var index = 0; index < (regions || []).length; index += 1) {
+    var region = regions[index] || {};
+    var start = number(region.startMs, number(region.start, 0) * 1000);
+    var end = number(region.endMs, number(region.end, 0) * 1000);
+    if (value >= start && value <= end) return index;
+  }
+  return -1;
+}
+
+function canCoalesceRaw(previous, current, options) {
+  options = options || {};
+  var gap = Math.max(0, current.startMs - previous.endMs);
+  var maximumGap = number(options.rawMergeGapMs, 1200);
+  if (gap > maximumGap) return false;
+  // A terminal mark is already a reliable sentence boundary.  Keeping the
+  // records separate also prevents a model chunk boundary from swallowing the
+  // next utterance when both chunks happen to be adjacent.
+  if (isStrongEnd(previous.text)) return false;
+  var previousWord = previous.words && previous.words[previous.words.length - 1];
+  var currentWord = current.words && current.words[0];
+  if (previousWord && currentWord && previousWord.vadRegionId && currentWord.vadRegionId && previousWord.vadRegionId !== currentWord.vadRegionId) return false;
+  var regions = options.speechBoundaryHints || options.speechRegions || previous.vadRegions || current.vadRegions || [];
+  if (regions.length) {
+    var left = rawRegionIndex(previousWord ? previousWord.endMs : previous.endMs, regions);
+    var right = rawRegionIndex(currentWord ? currentWord.startMs : current.startMs, regions);
+    if (left >= 0 && right >= 0 && left !== right) return false;
+  }
+  return true;
+}
+
+function coalesceRawSegments(rawSegments, options) {
+  var output = [];
+  (rawSegments || []).forEach(function (raw) {
+    var previous = output[output.length - 1];
+    if (!previous || !canCoalesceRaw(previous, raw, options)) {
+      output.push(raw);
+      return;
+    }
+    var combinedWords = normalizeWords((previous.words || []).concat(raw.words || []), previous.startMs, Math.max(previous.endMs, raw.endMs));
+    previous.endMs = Math.max(previous.endMs, raw.endMs);
+    previous.words = combinedWords;
+    previous.text = combinedWords.length ? joinWordTexts(combinedWords) : cleanText([previous.text, raw.text].filter(Boolean).join(" "));
+    previous.sourceSegmentIds = (previous.sourceSegmentIds || [previous.id]).concat(raw.sourceSegmentIds || [raw.id]);
+    previous.vadRegions = (previous.vadRegions || []).concat(raw.vadRegions || []);
+  });
+  return output;
 }
 
 function assignIds(cues) {
@@ -331,8 +382,11 @@ function assignIds(cues) {
 function buildCues(rawSegments, options) {
   options = options || {};
   var output = [];
-  normalizeRawSegments(rawSegments, options.maxRelativeMs).forEach(function (raw) {
-    var vadRegions = raw.vadRegions && raw.vadRegions.length ? raw.vadRegions : options.speechRegions;
+  coalesceRawSegments(normalizeRawSegments(rawSegments, options.maxRelativeMs), options).forEach(function (raw) {
+    // Boundary hints may come from a low-confidence energy detector.  They
+    // can split pauses, but are kept separate from trusted speech regions so
+    // they never trim a quiet word out of the final cue.
+    var vadRegions = raw.vadRegions && raw.vadRegions.length ? raw.vadRegions : (options.speechBoundaryHints || options.speechRegions);
     var cues = raw.words.length ? splitWords(raw.words, raw, vadRegions, options) : estimatedCues(raw);
     cues.forEach(function (cue) { output.push(cue); });
   });

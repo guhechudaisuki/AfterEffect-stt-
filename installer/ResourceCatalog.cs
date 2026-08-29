@@ -46,8 +46,9 @@ namespace LocalWhisperSubtitles.Setup
 
             if (manifest.runtimes == null) manifest.runtimes = new List<ResourcePackage>();
             if (manifest.models == null) manifest.models = new List<ResourcePackage>();
+            if (manifest.vadModels == null) manifest.vadModels = new List<ResourcePackage>();
             if (manifest.licenses == null) manifest.licenses = new List<ResourceLicense>();
-            EnsureUniqueIds(manifest.runtimes, manifest.models);
+            EnsureUniqueIds(manifest.runtimes, manifest.models, manifest.vadModels);
 
             return new ResourceCatalog(resourcesRoot, manifest);
         }
@@ -79,6 +80,19 @@ namespace LocalWhisperSubtitles.Setup
             for (int i = 0; i < Manifest.models.Count; i++)
             {
                 if (Manifest.models[i].recommended) return Manifest.models[i];
+            }
+            return null;
+        }
+
+        public ResourcePackage FindRecommendedVadModel()
+        {
+            for (int i = 0; i < Manifest.vadModels.Count; i++)
+            {
+                ResourcePackage item = Manifest.vadModels[i];
+                if (item != null
+                    && item.recommended
+                    && string.Equals(item.kind, "vad-model", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(item.backend, "whisper.cpp", StringComparison.OrdinalIgnoreCase)) return item;
             }
             return null;
         }
@@ -157,12 +171,13 @@ namespace LocalWhisperSubtitles.Setup
             }
         }
 
-        private static void EnsureUniqueIds(List<ResourcePackage> runtimes, List<ResourcePackage> models)
+        private static void EnsureUniqueIds(List<ResourcePackage> runtimes, List<ResourcePackage> models, List<ResourcePackage> vadModels)
         {
             HashSet<string> ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             List<ResourcePackage> all = new List<ResourcePackage>();
             all.AddRange(runtimes);
             all.AddRange(models);
+            all.AddRange(vadModels);
             for (int i = 0; i < all.Count; i++)
             {
                 if (all[i] == null || string.IsNullOrWhiteSpace(all[i].id)) throw new InvalidDataException("Every resource must have an id.");

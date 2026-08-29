@@ -80,6 +80,7 @@ namespace LocalWhisperSubtitles.Setup
                 result.VulkanRuntime = result.Catalog.Validate(result.Catalog.FindVulkanRuntime());
                 ResourcePackage model = result.Catalog.FindRecommendedModel();
                 result.RecommendedModel = result.Catalog.Validate(model);
+                result.WhisperCppVadModel = result.Catalog.Validate(result.Catalog.FindRecommendedVadModel());
                 if (model != null && !model.bundled && !result.RecommendedModel.IsValid)
                 {
                     result.RecommendedModel.Error = "Not bundled. It may only be downloaded after explicit user consent.";
@@ -113,6 +114,7 @@ namespace LocalWhisperSubtitles.Setup
 
             ResourcePackage runtimePackage = inspection.Catalog.FindCpuRuntime();
             ResourcePackage vulkanPackage = inspection.Catalog.FindVulkanRuntime();
+            ResourcePackage vadModelPackage = inspection.Catalog.FindRecommendedVadModel();
             bool sttRequested = options.InstallPremiere || options.DownloadRecommendedModel;
             bool hasExistingStt = !string.IsNullOrWhiteSpace(inspection.ExistingRuntimePath)
                 || !string.IsNullOrWhiteSpace(inspection.ExistingVulkanRuntimePath)
@@ -129,6 +131,12 @@ namespace LocalWhisperSubtitles.Setup
                 throw new InvalidDataException(inspection.CpuRuntime == null ? "CPU runtime is not declared." : inspection.CpuRuntime.Error);
             if (options.InstallVulkanRuntime && (inspection.VulkanRuntime == null || !inspection.VulkanRuntime.IsValid))
                 throw new InvalidDataException(inspection.VulkanRuntime == null ? "Vulkan runtime is not declared." : inspection.VulkanRuntime.Error);
+            if (options.QuickInstall && sttRequested
+                && (vadModelPackage == null || !vadModelPackage.bundled
+                    || inspection.WhisperCppVadModel == null || !inspection.WhisperCppVadModel.IsValid))
+                throw new InvalidDataException(inspection.WhisperCppVadModel == null
+                    ? "The bundled whisper.cpp VAD model is not declared."
+                    : inspection.WhisperCppVadModel.Error);
 
             string downloadedModelPath = null;
             if (options.DownloadRecommendedModel)
@@ -137,6 +145,14 @@ namespace LocalWhisperSubtitles.Setup
             }
 
             string installedRuntimePath = inspection.ExistingRuntimePath;
+            string vadModelTarget = Path.Combine(_paths.VadRoot, "silero-vad.bin");
+            string installedVadModelPath = File.Exists(vadModelTarget) ? vadModelTarget : null;
+            InstallState previousState = LoadInstallState();
+            bool previouslyOwnedVadModel = previousState != null && previousState.installWhisperCppVadModel;
+            bool ownsVadModel = previouslyOwnedVadModel || options.QuickInstall && sttRequested;
+            string managedVadModelSha256 = previousState == null ? null : previousState.whisperCppVadModelSha256;
+            if (options.QuickInstall && sttRequested && vadModelPackage != null)
+                managedVadModelSha256 = vadModelPackage.sha256;
             using (InstallTransaction transaction = new InstallTransaction())
             {
                 try
@@ -178,6 +194,17 @@ namespace LocalWhisperSubtitles.Setup
                             throw new InvalidDataException("Installed Vulkan runtime did not pass the whisper-cli compatibility probe.");
                     }
 
+                    if (options.QuickInstall && sttRequested)
+                    {
+                        Report(report, "Verifying and installing the whisper.cpp Silero VAD model...");
+                        transaction.ReplaceFile(inspection.WhisperCppVadModel.FullPath, vadModelTarget);
+                        if (!File.Exists(vadModelTarget)
+                            || new FileInfo(vadModelTarget).Length != vadModelPackage.size
+                            || !string.Equals(ResourceCatalog.ComputeSha256(vadModelTarget), vadModelPackage.sha256, StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidDataException("Installed whisper.cpp VAD model failed its integrity self-test.");
+                        installedVadModelPath = vadModelTarget;
+                    }
+
                     Report(report, "Installing resource provenance and licenses...");
                     string metadataIncoming = transaction.CreateIncomingDirectory(_paths.MetadataRoot);
                     CopyResourceMetadata(metadataIncoming, inspection.Catalog);
@@ -195,9 +222,12 @@ namespace LocalWhisperSubtitles.Setup
                         installEffectCopy = options.InstallEffectCopy,
                         installCpuRuntime = options.InstallCpuRuntime,
                         installVulkanRuntime = options.InstallVulkanRuntime,
+                        installWhisperCppVadModel = ownsVadModel,
                         runtimePath = installedRuntimePath,
                         runtimeId = options.InstallCpuRuntime && runtimePackage != null ? runtimePackage.id : null,
                         vulkanRuntimePath = installedVulkanRuntimePath,
+                        whisperCppVadModelPath = ownsVadModel ? installedVadModelPath : null,
+                        whisperCppVadModelSha256 = ownsVadModel ? managedVadModelSha256 : null,
                         pythonExecutablePath = inspection.GpuRuntime != null && inspection.GpuRuntime.Available ? inspection.GpuRuntime.PythonPath : null,
                         modelPath = downloadedModelPath ?? NormalizeSelectedModelPath(options.ModelPath, inspection.ModelScan),
                         modelDestinationFolder = options.ModelDestinationFolder,
@@ -236,6 +266,7 @@ namespace LocalWhisperSubtitles.Setup
         {
             EnsureAdobeHostsAreClosed();
             string currentExecutable = Path.GetFullPath(Assembly.GetExecutingAssembly().Location);
+            InstallState installed = LoadInstallState();
             using (InstallTransaction transaction = new InstallTransaction())
             {
                 try
@@ -245,6 +276,21 @@ namespace LocalWhisperSubtitles.Setup
 
                     Report(report, "Removing managed runtime and installer metadata...");
                     transaction.RemoveDirectory(_paths.RuntimeRoot);
+                    if (installed != null && installed.installWhisperCppVadModel)
+                    {
+                        string managedVadPath = Path.Combine(_paths.VadRoot, "silero-vad.bin");
+                        bool removeManagedVad = File.Exists(managedVadPath);
+                        if (removeManagedVad && !string.IsNullOrWhiteSpace(installed.whisperCppVadModelSha256))
+                        {
+                            try
+                            {
+                                removeManagedVad = string.Equals(ResourceCatalog.ComputeSha256(managedVadPath),
+                                    installed.whisperCppVadModelSha256, StringComparison.OrdinalIgnoreCase);
+                            }
+                            catch { removeManagedVad = false; }
+                        }
+                        if (removeManagedVad) transaction.RemoveFile(managedVadPath);
+                    }
                     transaction.RemoveDirectory(_paths.MetadataRoot);
                     transaction.RemoveFile(_paths.InstallStatePath);
                     if (!string.Equals(currentExecutable, _paths.InstalledUninstallerPath, StringComparison.OrdinalIgnoreCase))
@@ -403,7 +449,7 @@ namespace LocalWhisperSubtitles.Setup
                 Report(report, "正在下载推荐 Whisper 模型（" + FormatBytes(package.size) + "）...");
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(source);
                 request.Method = "GET";
-                request.UserAgent = "LocalWhisperSubtitles-ModelDownload/2.0.0";
+                request.UserAgent = "LocalWhisperSubtitles-ModelDownload/3.0.0";
                 request.Timeout = 30000;
                 request.ReadWriteTimeout = 30000;
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())

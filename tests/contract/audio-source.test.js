@@ -57,7 +57,7 @@ test("optional UVR5 vocal separation runs after timeline conformance and before 
     assert.match(runner, /detectingSpeech/);
 });
 
-test("VAD speech isolation is applied before Whisper and Python decoding uses stable settings", () => {
+test("VAD boundaries preserve the source waveform unless isolation is explicitly requested", () => {
     const runner = fs.readFileSync(path.join(workspace, "extension/js/core/transcription-runner.js"), "utf8");
     const bridge = fs.readFileSync(path.join(workspace, "extension/python/whisper_bridge.py"), "utf8");
     const isolator = fs.readFileSync(path.join(workspace, "extension/js/core/speech-isolator.js"), "utf8");
@@ -65,9 +65,10 @@ test("VAD speech isolation is applied before Whisper and Python decoding uses st
     const whisperCpp = fs.readFileSync(path.join(workspace, "extension/js/core/whispercpp-adapter.js"), "utf8");
     assert.match(runner, /speechIsolator\.isolatePcm16MonoWav/);
     assert.match(runner, /speech-isolated\.wav/);
-    assert.match(runner, /speechIsolation/);
-    assert.match(bridge, /beam_size=5/);
-    assert.match(bridge, /condition_on_previous_text=False/);
+    assert.match(runner, /isolationRequested/);
+    assert.match(runner, /if \(isolationRequested &&/);
+    assert.match(bridge, /beam_size=beam_size/);
+    assert.match(bridge, /condition_on_previous_text=not bounded_region/);
     assert.match(bridge, /min_silence_duration_ms/);
     assert.match(runtimeDetector, /beamSize/);
     assert.match(whisperCpp, /flags\.beamSize/);
@@ -98,9 +99,9 @@ test("silent selected layers are skipped before Whisper starts", () => {
 
 test("Python Whisper engines leave loading state before blocking transcription", () => {
     [
-        ["def run_openai", "result = model.transcribe("],
-        ["def run_faster", "segments, info = model.transcribe("],
-        ["def run_transformers", "result = recognizer("]
+        ["def run_openai", "result = call_with_compat("],
+        ["def run_faster", "segments, info = call_with_compat("],
+        ["def run_transformers", "result = recognize("]
     ].forEach(([functionName, recognizerCallText]) => {
         const functionStart = pythonBridge.indexOf(functionName);
         const loadingComplete = pythonBridge.indexOf('"phase": "loadingModel", "percent": 100', functionStart);
@@ -129,8 +130,8 @@ test("Transformers hybrid mode loads one model with an automatic CPU/GPU device 
 });
 
 test("Transformers VAD clips avoid the short-clip token timestamp crash", () => {
-    assert.match(pythonBridge, /timestamp_mode = True if request\.get\("speechRegions"\) else "word"/);
+    assert.match(pythonBridge, /timestamp_mode = "word"/);
     assert.match(pythonBridge, /except IndexError as error/);
     assert.match(pythonBridge, /segment_timestamp_chunks/);
-    assert.match(pythonBridge, /return_timestamps=True/);
+    assert.match(pythonBridge, /recognize\(audio, True, bounded_region\)/);
 });

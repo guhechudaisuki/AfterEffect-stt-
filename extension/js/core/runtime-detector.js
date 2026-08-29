@@ -239,8 +239,17 @@ function descriptorsFromPythonProbe(file, probe, bridgePath) {
 }
 
 function firstSupportedFlag(text, flags) {
+  var source = String(text || "");
   for (var i = 0; i < flags.length; i += 1) {
-    if (text.indexOf(flags[i]) >= 0) return flags[i];
+    // Do not use a plain substring search here: for example `--vad` is also
+    // a prefix of `--vad-model`, and `-tp` is a prefix of `-tpi`.  Emitting a
+    // flag that only happens to be part of another option makes probing
+    // unreliable across whisper.cpp releases.  A token boundary is enough
+    // for the plain-text output produced by `--help` while still accepting
+    // punctuation (the help formatter prints a comma after short aliases).
+    var escaped = String(flags[i]).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    var pattern = new RegExp("(^|[^A-Za-z0-9_-])" + escaped + "(?=$|[^A-Za-z0-9_-])", "i");
+    if (pattern.test(source)) return flags[i];
   }
   return null;
 }
@@ -249,14 +258,37 @@ function parseWhisperCppProbe(file, text, origin) {
   var sourceText = String(text || "");
   var lower = String(text || "").toLowerCase();
   var jsonFull = firstSupportedFlag(lower, ["--output-json-full", "-ojf"]);
+  var json = firstSupportedFlag(lower, ["--output-json", "-oj"]);
   var vad = firstSupportedFlag(lower, ["--vad"]);
   var vadModel = firstSupportedFlag(lower, ["--vad-model"]);
+  var vadThreshold = firstSupportedFlag(lower, ["--vad-threshold", "-vt"]);
+  var vadMinSpeechDurationMs = firstSupportedFlag(lower, ["--vad-min-speech-duration-ms", "-vspd"]);
+  var vadMinSilenceDurationMs = firstSupportedFlag(lower, ["--vad-min-silence-duration-ms", "-vsd"]);
+  var vadMaxSpeechDurationS = firstSupportedFlag(lower, ["--vad-max-speech-duration-s", "-vmsd"]);
+  var vadSpeechPadMs = firstSupportedFlag(lower, ["--vad-speech-pad-ms", "-vp"]);
+  var vadSamplesOverlap = firstSupportedFlag(lower, ["--vad-samples-overlap", "-vo"]);
   var noGpu = firstSupportedFlag(lower, ["--no-gpu", "-ng"]);
+  var maxContext = firstSupportedFlag(lower, ["--max-context", "-mc"]);
+  var maxLen = firstSupportedFlag(lower, ["--max-len", "-ml"]);
+  var bestOf = firstSupportedFlag(lower, ["--best-of", "-bo"]);
   var beamSize = firstSupportedFlag(lower, ["--beam-size", "-bs"]);
+  var audioCtx = firstSupportedFlag(lower, ["--audio-ctx", "-ac"]);
+  var wordThold = firstSupportedFlag(lower, ["--word-thold", "-wt"]);
+  var entropyThold = firstSupportedFlag(lower, ["--entropy-thold", "-et"]);
   var splitOnWord = firstSupportedFlag(lower, ["--split-on-word", "-sow"]);
   var noSpeechThreshold = firstSupportedFlag(lower, ["--no-speech-thold", "-nth"]);
   var logprobThreshold = firstSupportedFlag(lower, ["--logprob-thold", "-lpt"]);
   var temperature = firstSupportedFlag(lower, ["--temperature", "-tp"]);
+  var temperatureInc = firstSupportedFlag(lower, ["--temperature-inc", "-tpi"]);
+  var noFallback = firstSupportedFlag(lower, ["--no-fallback", "-nf"]);
+  var prompt = firstSupportedFlag(lower, ["--prompt"]);
+  var carryInitialPrompt = firstSupportedFlag(lower, ["--carry-initial-prompt"]);
+  var suppressNst = firstSupportedFlag(lower, ["--suppress-nst", "-sns"]);
+  var suppressRegex = firstSupportedFlag(lower, ["--suppress-regex"]);
+  var flashAttn = firstSupportedFlag(lower, ["--flash-attn", "-fa"]);
+  var noFlashAttn = firstSupportedFlag(lower, ["--no-flash-attn", "-nfa"]);
+  var printConfidence = firstSupportedFlag(lower, ["--print-confidence"]);
+  var logScore = firstSupportedFlag(lower, ["--log-score", "-ls"]);
   var device = firstSupportedFlag(lower, ["--device", "-dev"]);
   var formats = ["ggml-bin"];
   if (/\bgguf\b/.test(lower)) formats.push("gguf");
@@ -269,6 +301,8 @@ function parseWhisperCppProbe(file, text, origin) {
   while ((vulkanMatch = vulkanDevicePattern.exec(sourceText))) {
     vulkanDevices.push({ index: Number(vulkanMatch[1]), name: vulkanMatch[2].trim() });
   }
+  var vadParameterFlags = [vadThreshold, vadMinSpeechDurationMs, vadMinSilenceDurationMs, vadMaxSpeechDurationS, vadSpeechPadMs, vadSamplesOverlap];
+  var decoderParameterFlags = [maxContext, maxLen, bestOf, beamSize, audioCtx, wordThold, entropyThold, splitOnWord, noSpeechThreshold, logprobThreshold, temperature, temperatureInc, noFallback, prompt, carryInitialPrompt, suppressNst, suppressRegex, flashAttn, noFlashAttn];
   return {
     id: "whispercpp:" + path.resolve(file).toLowerCase(),
     engine: "whisper.cpp",
@@ -278,10 +312,56 @@ function parseWhisperCppProbe(file, text, origin) {
     supportedModelFormats: formats,
     devices: devices,
     vulkanDevices: vulkanDevices,
-    flags: { jsonFull: jsonFull || false, vad: vad || false, vadModel: vadModel || false, noGpu: noGpu || false, beamSize: beamSize || false, splitOnWord: splitOnWord || false, noSpeechThreshold: noSpeechThreshold || false, logprobThreshold: logprobThreshold || false, temperature: temperature || false, device: device || false },
+    flags: {
+      json: json || false,
+      jsonFull: jsonFull || false,
+      vad: vad || false,
+      vadModel: vadModel || false,
+      vadThreshold: vadThreshold || false,
+      vadMinSpeechDurationMs: vadMinSpeechDurationMs || false,
+      vadMinSilenceDurationMs: vadMinSilenceDurationMs || false,
+      vadMaxSpeechDurationS: vadMaxSpeechDurationS || false,
+      vadSpeechPadMs: vadSpeechPadMs || false,
+      vadSamplesOverlap: vadSamplesOverlap || false,
+      noGpu: noGpu || false,
+      maxContext: maxContext || false,
+      maxLen: maxLen || false,
+      bestOf: bestOf || false,
+      beamSize: beamSize || false,
+      audioCtx: audioCtx || false,
+      wordThold: wordThold || false,
+      entropyThold: entropyThold || false,
+      splitOnWord: splitOnWord || false,
+      noSpeechThreshold: noSpeechThreshold || false,
+      logprobThreshold: logprobThreshold || false,
+      temperature: temperature || false,
+      temperatureInc: temperatureInc || false,
+      noFallback: noFallback || false,
+      prompt: prompt || false,
+      carryInitialPrompt: carryInitialPrompt || false,
+      suppressNst: suppressNst || false,
+      suppressRegex: suppressRegex || false,
+      flashAttn: flashAttn || false,
+      noFlashAttn: noFlashAttn || false,
+      printConfidence: printConfidence || false,
+      logScore: logScore || false,
+      device: device || false
+    },
     // Full JSON is the probeable whisper.cpp capability that exposes timed tokens.
     // Do not add --dtw: it is a model-specific alignment option, not a universal CLI flag.
-    capabilities: { wordTimestamps: !!jsonFull, vad: !!vad && !!vadModel, hybridDevice: devices.indexOf("vulkan") >= 0 },
+    capabilities: {
+      wordTimestamps: !!jsonFull,
+      vad: !!vad && !!vadModel,
+      vadParameters: !!vad && !!vadModel && vadParameterFlags.some(function (flag) { return !!flag; }),
+      prompt: !!prompt,
+      initialPrompt: !!prompt,
+      decoderParameters: decoderParameterFlags.some(function (flag) { return !!flag; }),
+      quality: !!jsonFull,
+      tokenProbabilities: !!jsonFull,
+      printConfidence: !!printConfidence,
+      logScore: !!logScore,
+      hybridDevice: devices.indexOf("vulkan") >= 0
+    },
     diagnostics: []
   };
 }

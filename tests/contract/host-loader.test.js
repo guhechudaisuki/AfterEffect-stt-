@@ -57,7 +57,7 @@ test("host loader can recover when CEP supplies the extension root explicitly", 
             this.fsName.indexOf("/common/response.jsx") >= 0 ||
             this.fsName.indexOf("/common/keyframe-time.jsx") >= 0 ||
             this.fsName.indexOf("/AEFT/host.jsx") >= 0 ||
-            this.fsName.indexOf("/AEFT/comp-copy.jsx") >= 0
+            this.fsName.indexOf("/AEFT/composition-copy.jsx") >= 0
         );
     }
     const context = {

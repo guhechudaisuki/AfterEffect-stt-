@@ -1086,6 +1086,20 @@ svg {
   border-left: 1px solid #30343b;
 }
 
+.composition-template-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: break-word;
+}
+
+.composition-template-row small {
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
 .empty-row {
   margin: 0;
   padding: 10px;
@@ -1427,11 +1441,12 @@ svg {
       "header header"
       "status status"
       "effects template"
+      "composition composition"
       "transcription transcription"
       "range model"
       "translation style"
       "output style";
-    grid-template-rows: auto auto auto auto auto auto auto;
+    grid-template-rows: auto auto auto auto auto auto auto auto;
     /* Keep intrinsic row positions stable when the shell is taller than its
        contents; stretching auto tracks would move the upper panels whenever
        a details element is opened. */
@@ -1442,6 +1457,7 @@ svg {
   .app-header { grid-area: header; }
   .status-strip { grid-area: status; }
   #effectCopyDetails { grid-area: effects; }
+  #compositionCopyDetails { grid-area: composition; }
   #templateDetails { grid-area: template; }
   .transcription-switch { grid-area: transcription; }
   .range-section { grid-area: range; }

@@ -90,6 +90,7 @@
   var root = extensionPath();
   var CepHostBridge = nodeRequire(path.join(root, "js", "bridge", "cep-host.js"));
   var SelectionRecorder = nodeRequire(path.join(root, "js", "features", "ae-selection-recorder.js"));
+  var createCompositionCopy = nodeRequire(path.join(root, "js", "features", "composition-copy.js"));
   var windowsFonts = nodeRequire(path.join(root, "js", "features", "windows-fonts.js"));
   var PropertyTree = nodeRequire(path.join(root, "js", "ui", "property-tree.js"));
   var modelScanner = nodeRequire(path.join(root, "js", "core", "model-scanner.js"));
@@ -135,10 +136,9 @@
     selectedUvr5Model: null,
     uvr5ScanMode: null,
     uvr5ScanPath: null,
-    compTemplate: null,
-    compTemplateCandidates: [],
     settings: null
   };
+  var compositionCopyUi = null;
 
   function byId(id) { return document.getElementById(id); }
   function all(selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); }
@@ -232,6 +232,7 @@
 
   function setHostUi(host) {
     state.host = host;
+    if (compositionCopyUi) compositionCopyUi.setHost(host);
     document.querySelector(".panel-shell").dataset.host = host;
     setText("hostBadge", host === "AEFT" ? "AE" : (host === "PPRO" ? "PR" : "--"));
     all(".ae-only").forEach(function (element) { element.hidden = host !== "AEFT"; });
@@ -836,6 +837,7 @@
   }
 
   function updateReadyState() {
+    if (compositionCopyUi) compositionCopyUi.refresh();
     var sttEnabled = byId("enableSttInput").checked;
     var ready = sttEnabled && !!state.context && !!state.range && !!state.selectedModel && !!selectedRuntime() && !!state.outputMode && !state.busy;
     byId("runButton").disabled = !ready;
@@ -846,7 +848,6 @@
     var enabled = byId("enableSttInput").checked;
     all(".stt-feature").forEach(function (element) { element.hidden = !enabled; });
     byId("transcriptionDetails").open = true;
-    updateCompTemplateVisibility();
     updateReadyState();
   }
 
@@ -923,7 +924,6 @@
   function runTranscription() {
     if (!byId("enableSttInput").checked || state.busy || !state.selectedModel || !selectedRuntime()) return;
     if (byId("enableUvr5Input").checked && !state.selectedUvr5Model) return showDialog("UVR5 未配置", "请先扫描并选择可用的 UVR5 模型，或关闭 UVR5。", null);
-    if (state.host === "AEFT" && state.outputMode === "compTemplate" && (!state.compTemplate || !state.compTemplate.textLayerIds.length)) return showDialog("合成模板未配置", "请先在“合成模板”中选择模板合成，并保留至少一个勾选的内部文字图层。", null);
     var translation = translationSettings();
     if (translation.targetLanguages.length && (!translation.baseUrl || !translation.model || !state.sessionApiKeys[translation.apiKeyRef])) return showDialog("翻译设置不完整", "请选择翻译模型并填写本次使用的 API Key。", null);
     if (translation.targetLanguages.length === 2 && translation.targetLanguages[0] === translation.targetLanguages[1]) return showDialog("双语设置重复", "语言 A 和语言 B 需要选择不同语言。", null);
@@ -1029,10 +1029,6 @@
     progress("writingHost", null, "正在创建 Adobe 字幕对象");
     var style = styleSettings();
     if (state.host === "AEFT") {
-      if (state.outputMode === "compTemplate") {
-        if (!state.compTemplate || !state.compTemplate.textLayerIds || !state.compTemplate.textLayerIds.length) throw new Error("请先在“合成模板”中选择模板合成并保留至少一个勾选文字图层");
-        return hostCall("ae.comp.subtitles.create", { compId: state.context.activeComp.itemId, segmentsFile: result.artifacts.json, templateCompId: state.compTemplate.compId, textLayerIds: state.compTemplate.textLayerIds, displayLanguages: displayLanguages(), layerPrefix: "LWS 合成字幕" });
-      }
       return hostCall("ae.subtitles.create", { compId: state.context.activeComp.itemId, mode: state.outputMode, segmentsFile: result.artifacts.json, displayLanguages: displayLanguages(), templateLayers: templateRecorder.getItems().map(function (item) { return { compId: item.compId, layerId: item.layerId }; }), moduleSelections: templateTree.getSelection(), position: style.center, styleOverrides: { font: style.font, fontSize: style.fontSize, tracking: style.tracking, leading: style.leading }, layerPrefix: source && source.layerName ? "LWS 字幕 · " + source.layerName : "LWS 字幕" });
     }
     var srtPath = path.join(path.dirname(result.artifacts.json), "captions.srt");
@@ -1098,7 +1094,7 @@
     all("#positionGrid button").forEach(function (button) { button.addEventListener("click", function () { all("#positionGrid button").forEach(function (item) { item.classList.remove("active"); }); button.classList.add("active"); byId("positionX").value = button.dataset.x; byId("positionY").value = button.dataset.y; updatePreview(); }); });
     ["positionX", "positionY", "fontInput", "fontSizeInput", "trackingInput", "leadingInput", "maxLineCharsInput", "maxLinesInput"].forEach(function (id) { byId(id).addEventListener("input", function () { updatePreview(); saveSettings(); }); });
     byId("maxLineCharsInput").addEventListener("input", function () { byId("maxLinesInput").disabled = Number(this.value) === 0; });
-    all("[data-output]").forEach(function (button) { button.addEventListener("click", function () { var parent = button.parentElement; Array.prototype.slice.call(parent.querySelectorAll("button")).forEach(function (item) { item.classList.toggle("active", item === button); }); state.outputMode = button.dataset.output; updateCompTemplateVisibility(); saveSettings(); }); });
+    all("[data-output]").forEach(function (button) { button.addEventListener("click", function () { var parent = button.parentElement; Array.prototype.slice.call(parent.querySelectorAll("button")).forEach(function (item) { item.classList.toggle("active", item === button); }); state.outputMode = button.dataset.output; saveSettings(); }); });
     byId("recordTemplatesButton").addEventListener("click", function () { toggleRecorder(this, templateRecorder, byId("templateLayerList"), function () { loadTreeFor(templateRecorder.getItems(), templateTree, "template-tree"); }); });
     byId("chooseAepButton").addEventListener("click", chooseAep);
     byId("chooseEffectAepButton").addEventListener("click", chooseEffectAep);
@@ -1109,8 +1105,6 @@
     byId("recordEffectSourcesButton").addEventListener("click", function () { toggleRecorder(this, effectSourceRecorder, byId("effectSourceList"), function () { state.effectTreeLoading = true; updateEffectButton(); loadTreeFor(effectSourceRecorder.getItems(), effectTree, "effect-tree", function () { state.effectTreeLoading = false; updateEffectButton(); }); }, byId("recordEffectTargetsButton")); });
     byId("recordEffectTargetsButton").addEventListener("click", function () { toggleRecorder(this, effectTargetRecorder, byId("effectTargetList"), updateEffectButton, byId("recordEffectSourcesButton")); });
     byId("applyEffectsButton").addEventListener("click", applyEffects);
-    byId("compTemplateSelect").addEventListener("change", onCompTemplateChange);
-    byId("refreshCompTemplateButton").addEventListener("click", loadCompTemplateList);
     byId("runButton").addEventListener("click", runTranscription);
     byId("cancelButton").addEventListener("click", function () { if (state.currentRunner) state.currentRunner.cancel(); Object.keys(state.encoderJobs).forEach(function (id) { state.encoderJobs[id].reject(new Error("任务已取消")); delete state.encoderJobs[id]; }); });
     byId("downloadModelButton").addEventListener("click", function () { showDialog("获取推荐模型", "安装器会从外置 resources 清单安装或下载 ggml-large-v3-turbo-q5_0。当前面板不会静默下载。", "打开扫描菜单", function () { byId("scanMenu").open = true; }); });
@@ -1137,94 +1131,6 @@
   }
 
   function updateEffectButton() { byId("applyEffectsButton").disabled = state.effectTreeLoading || effectSourceRecorder.recording || effectTargetRecorder.recording || !effectSourceRecorder.getItems().length || !effectTargetRecorder.getItems().length || !effectTree.selectedModuleIds().length; }
-
-  function updateCompTemplateVisibility() {
-    var details = byId("compTemplateDetails");
-    if (!details) return;
-    details.hidden = state.host !== "AEFT" || !byId("enableSttInput").checked || state.outputMode !== "compTemplate";
-  }
-
-  function loadCompTemplateList() {
-    var select = byId("compTemplateSelect");
-    if (!select || state.host !== "AEFT") return;
-    hostCall("ae.aep.listComps", {}).then(function (result) {
-      var comps = result.data && result.data.comps || [];
-      state.compTemplateCandidates = comps;
-      select.innerHTML = "";
-      if (!comps.length) {
-        var empty = document.createElement("option");
-        empty.value = "";
-        empty.textContent = "项目中没有包含文字图层的合成";
-        select.appendChild(empty);
-        setText("compTemplateTiming", "节奏驱动：未选择模板");
-        return;
-      }
-      comps.forEach(function (comp, index) {
-        var option = document.createElement("option");
-        option.value = String(index);
-        option.textContent = comp.name + " · " + comp.width + "×" + comp.height + " · " + Number(comp.duration).toFixed(1) + "s · " + comp.textLayerCount + " 个文字层";
-        select.appendChild(option);
-      });
-      onCompTemplateChange();
-    }).catch(function (error) {
-      select.innerHTML = "";
-      var failed = document.createElement("option");
-      failed.value = "";
-      failed.textContent = "合成列表读取失败";
-      select.appendChild(failed);
-      setText("compTemplateTiming", "节奏驱动：读取失败 · " + error.message);
-    });
-  }
-
-  function onCompTemplateChange() {
-    var select = byId("compTemplateSelect");
-    var comp = state.compTemplateCandidates[Number(select.value)];
-    state.compTemplate = null;
-    var container = byId("compTemplateTextLayers");
-    container.innerHTML = "";
-    if (!comp) {
-      setText("compTemplateTiming", "节奏驱动：未选择模板");
-      return;
-    }
-    setText("compTemplateTiming", "正在读取模板信息");
-    hostCall("ae.comp.templateInfo", { compId: comp.compId }).then(function (result) {
-      var info = result.data || {};
-      var fragment = document.createDocumentFragment();
-      (info.textLayers || []).forEach(function (layer) {
-        var label = document.createElement("label");
-        label.className = "picker-row";
-        var input = document.createElement("input");
-        input.type = "checkbox";
-        input.checked = true;
-        input.value = String(layer.layerId);
-        input.addEventListener("change", collectCompTemplateSelection);
-        var span = document.createElement("span");
-        var strong = document.createElement("strong");
-        strong.textContent = layer.name || ("图层 " + layer.index);
-        var small = document.createElement("small");
-        small.textContent = "图层 " + layer.index + " · " + Number(layer.outPoint - layer.inPoint).toFixed(1) + "s";
-        span.appendChild(strong);
-        span.appendChild(small);
-        label.appendChild(input);
-        label.appendChild(span);
-        fragment.appendChild(label);
-      });
-      container.appendChild(fragment);
-      state.compTemplate = { compId: info.compId, name: info.name, textLayerIds: (info.textLayers || []).map(function (layer) { return layer.layerId; }), progressDriver: info.progressDriver || null };
-      setText("compTemplateTiming", info.progressDriver
-        ? "节奏驱动：滑杆「" + info.progressDriver.effectName + "」· 每句按词级时间写进度键"
-        : "未找到 LWS Progress 滑杆：将尝试动画器 Start 键，否则整行线性拉伸");
-    }).catch(function (error) {
-      setText("compTemplateTiming", "模板信息读取失败 · " + error.message);
-    });
-  }
-
-  function collectCompTemplateSelection() {
-    if (!state.compTemplate) return;
-    var ids = [];
-    all("#compTemplateTextLayers input[type=checkbox]").forEach(function (input) { if (input.checked) ids.push(Number(input.value)); });
-    state.compTemplate.textLayerIds = ids;
-  }
 
   function installAdaptiveGrid() {
     var shell = document.querySelector(".panel-shell");
@@ -1255,6 +1161,8 @@
   }
 
   function initialize() {
+    compositionCopyUi = createCompositionCopy({ document: document, bridge: bridge, hostCall: hostCall, choosePath: choosePath, setStatus: setStatus, isBusy: function () { return state.busy; } });
+    window.addEventListener("unload", compositionCopyUi.destroy);
     bindUi();
     installAdaptiveGrid();
     loadConfiguredPythonRuntime();
@@ -1281,7 +1189,7 @@
     }).then(function (result) {
       state.capabilities = result.data.features || {};
       applyCapabilities();
-      if (state.host === "AEFT") loadCompTemplateList();
+      if (state.host === "AEFT") compositionCopyUi.loadTemplates();
       return Promise.all([loadContext(), loadFonts()]);
     }).then(function () {
       var saved = state.settings;

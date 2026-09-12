@@ -212,7 +212,7 @@
         loadScript("common/keyframe-time.jsx");
         if (status.host === "AEFT") {
             loadScript("AEFT/host.jsx");
-            loadScript("AEFT/comp-copy.jsx");
+            loadScript("AEFT/composition-copy.jsx");
         }
         else if (status.host === "PPRO") loadScript("PPRO/host.jsx");
         else status.errors.push({ stage: "hostAdapter", error: "Unsupported Adobe host" });

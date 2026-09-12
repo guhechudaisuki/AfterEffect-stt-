@@ -1,6 +1,6 @@
 {
   "name": "local-whisper-subtitles",
-  "version": "3.1.1",
+  "version": "4.0.0",
   "private": true,
   "description": "Local Whisper subtitles for Adobe After Effects and Premiere Pro",
   "scripts": {

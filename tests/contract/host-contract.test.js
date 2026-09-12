@@ -12,7 +12,7 @@ const files = {
     response: path.join(jsxRoot, "common/response.jsx"),
     keyframe: path.join(jsxRoot, "common/keyframe-time.jsx"),
     ae: path.join(jsxRoot, "AEFT/host.jsx"),
-    comp: path.join(jsxRoot, "AEFT/comp-copy.jsx"),
+    comp: path.join(jsxRoot, "AEFT/composition-copy.jsx"),
     pr: path.join(jsxRoot, "PPRO/host.jsx")
 };
 
@@ -44,7 +44,7 @@ test("loader evaluates every common dependency before the host adapter", () => {
     const responseIndex = source.indexOf("common/response.jsx");
     const keyframeIndex = source.indexOf("common/keyframe-time.jsx");
     const aeIndex = source.indexOf("AEFT/host.jsx");
-    const compIndex = source.indexOf("AEFT/comp-copy.jsx");
+    const compIndex = source.indexOf("AEFT/composition-copy.jsx");
     assert.ok(jsonIndex >= 0 && responseIndex > jsonIndex && keyframeIndex > responseIndex && aeIndex > keyframeIndex);
     assert.ok(compIndex > aeIndex, "comp-copy module must load after the AEFT adapter");
 });
@@ -55,7 +55,7 @@ test("host files register the complete public route contract", () => {
         "ae.selection.snapshot", "ae.aep.import", "ae.aep.listComps", "ae.comp.listTextLayers",
         "ae.layer.tree", "ae.subtitles.create", "ae.modules.copy"
     ];
-    const compRoutes = ["ae.comp.templateInfo", "ae.comp.subtitles.create"];
+    const compRoutes = ["ae.comp.copy.info", "ae.comp.copy.create"];
     const prRoutes = [
         "common.capabilities", "pr.context.get", "pr.range.get", "pr.audio.export",
         "pr.subtitles.captions.create"

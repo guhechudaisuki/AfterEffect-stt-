@@ -31,19 +31,32 @@ $objRoot = Join-Path $installerRoot 'obj'
 New-Item -ItemType Directory -Path $objRoot -Force | Out-Null
 $payloadZip = Join-Path $objRoot 'extension-payload.zip'
 if (Test-Path -LiteralPath $payloadZip) { Remove-Item -LiteralPath $payloadZip -Force }
+$payloadStaging = Join-Path $objRoot 'extension-payload-staging'
+if (Test-Path -LiteralPath $payloadStaging) { Remove-Item -LiteralPath $payloadStaging -Recurse -Force }
+New-Item -ItemType Directory -Path $payloadStaging -Force | Out-Null
 $forbiddenPayloads = Get-ChildItem -LiteralPath $extensionRoot -Recurse -File | Where-Object {
     $_.Extension -in @('.bin', '.gguf', '.pt', '.zip') -or $_.Length -gt 50MB
 }
 if ($forbiddenPayloads) {
     throw "Model/archive-like files cannot be embedded in Setup: $($forbiddenPayloads.FullName -join ', ')"
 }
+Get-ChildItem -LiteralPath $extensionRoot -Recurse -File | Where-Object {
+    $_.Extension -ne '.pyc' -and $_.FullName -notmatch '[\\/]__pycache__[\\/]'
+} | ForEach-Object {
+    $relativePath = $_.FullName.Substring($extensionRoot.Length).TrimStart('\', '/')
+    $target = Join-Path $payloadStaging $relativePath
+    $targetDirectory = Split-Path -Parent $target
+    if (-not (Test-Path -LiteralPath $targetDirectory)) { New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null }
+    Copy-Item -LiteralPath $_.FullName -Destination $target
+}
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory(
-    $extensionRoot,
+    $payloadStaging,
     $payloadZip,
     [System.IO.Compression.CompressionLevel]::Optimal,
     $false
 )
+Remove-Item -LiteralPath $payloadStaging -Recurse -Force
 
 if (Test-Path -LiteralPath $OutputRoot) {
     if (-not $OutputRoot.StartsWith($repoPrefix, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe output deletion was blocked.' }

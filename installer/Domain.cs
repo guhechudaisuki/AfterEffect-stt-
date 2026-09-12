@@ -7,22 +7,24 @@ namespace LocalWhisperSubtitles.Setup
     internal static class ProductInfo
     {
         public const string Name = "Local Whisper Subtitles";
-        public const string Version = "3.0.0";
+        public const string Version = "3.1.1";
         public const string ExtensionId = "com.localwhisper.subtitles";
-        // Adobe product major versions are not year numbers: 2020 = 17.x,
-        // 2021 = 18.x, 2022 = 22.x, and newer releases follow 23.x, 24.x...
-        public const int MinimumSupportedHostMajor = 17;
-        public const int SupportedHostMajor = MinimumSupportedHostMajor;
-        public const int SupportedHostMinor = 0;
+        public const int MinimumSupportedAfterEffectsMajor = 17;
+        public const int MinimumSupportedPremiereMajor = 14;
 
-        public static bool IsSupportedHostVersion(int major, int minor)
+        public static bool IsSupportedHostVersion(string hostCode, int major, int minor)
         {
-            return major >= MinimumSupportedHostMajor;
+            int requiredMajor = string.Equals(hostCode, "PPRO", StringComparison.OrdinalIgnoreCase)
+                ? MinimumSupportedPremiereMajor
+                : MinimumSupportedAfterEffectsMajor;
+            return major >= requiredMajor;
         }
 
-        public static string SupportedHostLabel
+        public static string SupportedHostLabel(string hostCode)
         {
-            get { return "Adobe 2020（17.x）及以后版本"; }
+            return string.Equals(hostCode, "PPRO", StringComparison.OrdinalIgnoreCase)
+                ? "Premiere Pro 2020（14.x）及以后版本"
+                : "After Effects 2020（17.x）及以后版本";
         }
     }
 

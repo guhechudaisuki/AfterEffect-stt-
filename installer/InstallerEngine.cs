@@ -449,7 +449,7 @@ namespace LocalWhisperSubtitles.Setup
                 Report(report, "正在下载推荐 Whisper 模型（" + FormatBytes(package.size) + "）...");
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(source);
                 request.Method = "GET";
-                request.UserAgent = "LocalWhisperSubtitles-ModelDownload/3.0.0";
+                request.UserAgent = "LocalWhisperSubtitles-ModelDownload/" + ProductInfo.Version;
                 request.Timeout = 30000;
                 request.ReadWriteTimeout = 30000;
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())

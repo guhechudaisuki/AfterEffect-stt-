@@ -42,6 +42,13 @@ namespace LocalWhisperSubtitles.Setup
             {
                 Assert(HostDetector.DetectSupportedHosts().Count == 2, "Host detector did not return two host states.");
             });
+            Run("Adobe 2020 host versions use product-specific majors", delegate
+            {
+                Assert(ProductInfo.IsSupportedHostVersion("AEFT", 17, 0), "AE 2020 must be supported.");
+                Assert(!ProductInfo.IsSupportedHostVersion("AEFT", 16, 9), "AE 2019 must not be supported.");
+                Assert(ProductInfo.IsSupportedHostVersion("PPRO", 14, 0), "Premiere Pro 2020 must be supported.");
+                Assert(!ProductInfo.IsSupportedHostVersion("PPRO", 13, 9), "Premiere Pro 2019 must not be supported.");
+            });
             Run("non-standard Conda root supplies a Python candidate", TestNonStandardCondaRoot);
             Run("Hugging Face Whisper directory is recognized", TestHuggingFaceWhisperDirectory);
             Run("installer state contract preserves selected model path", delegate

@@ -501,7 +501,7 @@ namespace LocalWhisperSubtitles.Setup
             {
                 AutoSize = true,
                 MaximumSize = new Size(560, 0),
-                Text = "安装器会自动查找 Adobe 2020（17.x）及以后版本；如果未找到，可直接点击上面的按钮选择 AfterFX.exe 或 Premiere Pro.exe。",
+                Text = "安装器会自动查找 AE 2020（17.x）或 PR 2020（14.x）及以后版本；如果未找到，可直接点击上面的按钮选择对应 exe。",
                 ForeColor = Color.FromArgb(87, 91, 97),
                 Margin = new Padding(0, 8, 0, 0)
             };
@@ -614,9 +614,9 @@ namespace LocalWhisperSubtitles.Setup
                 }
                 int major = version.ProductMajorPart != 0 ? version.ProductMajorPart : version.FileMajorPart;
                 int minor = version.ProductMinorPart != 0 ? version.ProductMinorPart : version.FileMinorPart;
-                if (!ProductInfo.IsSupportedHostVersion(major, minor))
+                if (!ProductInfo.IsSupportedHostVersion(hostCode, major, minor))
                 {
-                    MessageBox.Show("所选文件版本为 " + version.ProductVersion + "，需要 " + ProductInfo.SupportedHostLabel + "。", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show("所选文件版本为 " + version.ProductVersion + "，需要 " + ProductInfo.SupportedHostLabel(hostCode) + "。", ProductInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
                 if (hostCode == "AEFT") _aeExecutablePath = dialog.FileName;
@@ -820,7 +820,9 @@ namespace LocalWhisperSubtitles.Setup
             bool hasPr = HasSupportedHost("PPRO");
             bool selectedAe = _installAfterEffects.Checked;
             bool selectedPr = _installPremiere.Checked;
-            bool hasHost = selectedAe && hasAe || selectedPr && hasPr;
+            bool hasHost = (selectedAe || selectedPr)
+                && (!selectedAe || hasAe)
+                && (!selectedPr || hasPr);
             bool resourceReady = _inspection.Catalog != null;
             SyncQuickSttRequirement();
             bool quickMode = _quickInstall.Checked;

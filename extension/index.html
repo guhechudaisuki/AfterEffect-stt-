@@ -158,10 +158,21 @@
 
     <section class="control-section output-section stt-feature" aria-labelledby="outputHeading">
       <div class="section-heading"><h2 id="outputHeading">输出方式</h2></div>
-      <div class="segmented" id="aeOutputModes" role="group" aria-label="AE 输出方式" hidden><button type="button" class="segment active" data-output="perSegmentLayers">逐句文本图层</button><button type="button" class="segment" data-output="singleLayer">单一文本图层</button></div>
-      <div class="segmented" id="prOutputModes" role="group" aria-label="PR 输出方式" hidden><button type="button" class="segment active" data-output="graphics">图形字幕</button><button type="button" class="segment" data-output="captions">原生字幕轨</button></div>
-      <label class="field full-field pr-only" id="premiereTrackField" hidden><span>图形字幕视频轨道</span><select id="videoTrackSelect"></select></label>
+      <div class="segmented" id="aeOutputModes" role="group" aria-label="AE 输出方式" hidden><button type="button" class="segment active" data-output="perSegmentLayers">逐句文本图层</button><button type="button" class="segment" data-output="singleLayer">单一文本图层</button><button type="button" class="segment" data-output="compTemplate">合成模板</button></div>
+      <div class="runtime-line pr-only" id="prCaptionOutput" hidden><span class="mini-dot"></span><strong>Premiere 字幕</strong><small id="prCaptionOutputDetail">正在检测字幕轨接口</small></div>
     </section>
+
+    <details class="host-tool ae-only stt-feature" id="compTemplateDetails" hidden>
+      <summary><span><i data-lucide="file-stack"></i>合成模板（整组特效）</span><i data-lucide="chevron-down"></i></summary>
+      <div class="tool-body">
+        <label class="field full-field"><span>模板合成 · 整个合成为一句字幕搭建</span><select id="compTemplateSelect"><option value="">正在读取项目合成</option></select></label>
+        <button class="secondary-button full-command" id="refreshCompTemplateButton" type="button"><i data-lucide="refresh-cw"></i><span>刷新合成列表</span></button>
+        <small class="scan-path" id="compTemplateTextLayersHint">勾选模板内接收字幕文字的图层</small>
+        <div class="picker-list" id="compTemplateTextLayers"><p class="empty-row">选择模板合成后显示内部文字图层</p></div>
+        <small class="scan-path" id="compTemplateTiming">节奏驱动：未选择模板</small>
+        <small class="scan-path">节奏约定：模板内放置名称含「LWS Progress」或「LWS 进度」的滑杆（0→100），reveal 与花瓣等跟随效果用表达式挂在该滑杆上</small>
+      </div>
+    </details>
 
     <details class="host-tool ae-only stt-feature" id="templateDetails" hidden>
       <summary><span><i data-lucide="layers-3"></i>AE 文本模板</span><i data-lucide="chevron-down"></i></summary>

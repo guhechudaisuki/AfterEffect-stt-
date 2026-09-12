@@ -71,4 +71,10 @@ function cleanupOld(baseDirectory, maxAgeMs) {
   });
 }
 
-module.exports = { create: create, cleanupOld: cleanupOld, removeTree: removeTree, containsPlaintextSecret: containsPlaintextSecret };
+module.exports = {
+  create: create,
+  cleanupOld: cleanupOld,
+  removeTree: removeTree,
+  containsPlaintextSecret: containsPlaintextSecret,
+  ensureDirectory: ensureDirectory
+};

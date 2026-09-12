@@ -16,7 +16,6 @@
     Array.prototype.forEach.call(document.querySelectorAll(".ae-only"), function (element) { element.hidden = host !== "AEFT"; });
     Array.prototype.forEach.call(document.querySelectorAll(".pr-only"), function (element) { element.hidden = host !== "PPRO"; });
     document.getElementById("aeOutputModes").hidden = host !== "AEFT";
-    document.getElementById("prOutputModes").hidden = host !== "PPRO";
     document.getElementById("contextName").textContent = host === "AEFT" ? "主合成 · 第 03 场" : "Episode_03_Master";
     document.getElementById("contextMeta").textContent = host === "AEFT" ? "3840 × 2160 · Work Area" : "3840 × 2160 · Sequence In/Out";
     document.getElementById("rangeIn").textContent = "00:01:12.400";
@@ -42,11 +41,7 @@
     document.getElementById("enableUvr5Input").disabled = false;
     document.getElementById("uvr5Row").dataset.ready = "true";
     document.getElementById("uvr5PathLabel").textContent = "X:\\models\\uvr5\\HP2_all_vocals.pth";
-    if (host === "PPRO") {
-      var tracks = document.getElementById("videoTrackSelect");
-      tracks.innerHTML = "<option>V2 · 14 clips</option><option>V3 · 2 clips</option>";
-      document.getElementById("premiereTrackField").hidden = false;
-    }
+    if (host === "PPRO") document.getElementById("prCaptionOutputDetail").textContent = "自动创建原生字幕轨";
     Array.prototype.forEach.call(document.querySelectorAll("[data-tab]"), function (button) {
       button.addEventListener("click", function () {
         Array.prototype.forEach.call(document.querySelectorAll("[data-tab]"), function (item) { item.setAttribute("aria-selected", item === button ? "true" : "false"); });
@@ -140,6 +135,8 @@
     selectedUvr5Model: null,
     uvr5ScanMode: null,
     uvr5ScanPath: null,
+    compTemplate: null,
+    compTemplateCandidates: [],
     settings: null
   };
 
@@ -240,28 +237,21 @@
     all(".ae-only").forEach(function (element) { element.hidden = host !== "AEFT"; });
     all(".pr-only").forEach(function (element) { element.hidden = host !== "PPRO"; });
     byId("aeOutputModes").hidden = host !== "AEFT";
-    byId("prOutputModes").hidden = host !== "PPRO";
-    state.outputMode = host === "AEFT" ? "perSegmentLayers" : "graphics";
+    state.outputMode = host === "AEFT" ? "perSegmentLayers" : "captions";
     if (!state.settings || state.settings.sttEnabled === undefined) byId("enableSttInput").checked = host === "PPRO";
     updateSttVisibility();
   }
 
   function applyCapabilities() {
     if (state.host !== "PPRO") return;
-    var graphicsButton = document.querySelector('[data-output="graphics"]');
-    var captionsButton = document.querySelector('[data-output="captions"]');
-    graphicsButton.disabled = state.capabilities.graphics === false;
-    captionsButton.disabled = state.capabilities.nativeCaptions === false;
-    if (graphicsButton.disabled && !captionsButton.disabled) {
-      graphicsButton.classList.remove("active");
-      captionsButton.classList.add("active");
-      state.outputMode = "captions";
-      byId("premiereTrackField").hidden = true;
-    }
-    if (graphicsButton.disabled && captionsButton.disabled) {
+    if (state.capabilities.captionImport === false) {
       state.outputMode = null;
-      setStatus("error", "Premiere 字幕接口不可用", "当前 Adobe 2020+ 宿主未通过图形字幕或原生字幕能力检测");
+      setText("prCaptionOutputDetail", "当前版本不能导入 SRT 字幕");
+      setStatus("error", "Premiere 字幕接口不可用", "当前 Premiere Pro 无法导入 SRT 字幕素材");
+      return;
     }
+    state.outputMode = "captions";
+    setText("prCaptionOutputDetail", state.capabilities.nativeCaptions ? "自动创建原生字幕轨" : "生成并导入 SRT，需手动拖入时间轴");
   }
 
   function loadContext() {
@@ -322,21 +312,6 @@
     option.value = value;
     option.label = label || value;
     byId("fontList").appendChild(option);
-  }
-
-  function loadTracks() {
-    if (state.host !== "PPRO") return Promise.resolve();
-    return hostCall("pr.tracks.list").then(function (result) {
-      var select = byId("videoTrackSelect");
-      select.innerHTML = "";
-      (result.data.tracks || []).forEach(function (track) {
-        var option = document.createElement("option");
-        option.value = track.index;
-        option.textContent = track.displayName + " · " + track.clipCount + " clips";
-        select.appendChild(option);
-      });
-      if (select.options.length > 1) select.value = "1";
-    });
   }
 
   function detectEnvironment(models, callback) {
@@ -404,7 +379,7 @@
     try {
       var file = settingsFilePath();
       var snapshot = settingsSnapshot();
-      fs.mkdirSync(path.dirname(file), { recursive: true });
+      tempStore.ensureDirectory(path.dirname(file));
       fs.writeFileSync(file, JSON.stringify(snapshot, null, 2), "utf8");
       state.settings = snapshot;
     } catch (ignore) {}
@@ -677,7 +652,7 @@
   function loadTreeFor(items, tree, responseName, callback) {
     if (!items.length) { tree.clear("没有可读取的来源层"); if (callback) callback(new Error("没有可读取的来源层")); return; }
     var responseRoot = path.join(os.tmpdir(), "LocalWhisperSubtitles");
-    fs.mkdirSync(responseRoot, { recursive: true });
+    tempStore.ensureDirectory(responseRoot);
     Promise.all(items.map(function (item, index) {
       var responsePath = path.join(responseRoot, responseName + "-" + Date.now() + "-" + index + ".json");
       return hostCall("ae.layer.tree", { compId: item.compId, layerId: item.layerId, responseFile: responsePath }).then(function (result) {
@@ -871,6 +846,7 @@
     var enabled = byId("enableSttInput").checked;
     all(".stt-feature").forEach(function (element) { element.hidden = !enabled; });
     byId("transcriptionDetails").open = true;
+    updateCompTemplateVisibility();
     updateReadyState();
   }
 
@@ -947,6 +923,7 @@
   function runTranscription() {
     if (!byId("enableSttInput").checked || state.busy || !state.selectedModel || !selectedRuntime()) return;
     if (byId("enableUvr5Input").checked && !state.selectedUvr5Model) return showDialog("UVR5 未配置", "请先扫描并选择可用的 UVR5 模型，或关闭 UVR5。", null);
+    if (state.host === "AEFT" && state.outputMode === "compTemplate" && (!state.compTemplate || !state.compTemplate.textLayerIds.length)) return showDialog("合成模板未配置", "请先在“合成模板”中选择模板合成，并保留至少一个勾选的内部文字图层。", null);
     var translation = translationSettings();
     if (translation.targetLanguages.length && (!translation.baseUrl || !translation.model || !state.sessionApiKeys[translation.apiKeyRef])) return showDialog("翻译设置不完整", "请选择翻译模型并填写本次使用的 API Key。", null);
     if (translation.targetLanguages.length === 2 && translation.targetLanguages[0] === translation.targetLanguages[1]) return showDialog("双语设置重复", "语言 A 和语言 B 需要选择不同语言。", null);
@@ -960,8 +937,8 @@
       var sources = audioBatch.sources || [];
       var runtime = selectedRuntime();
       if (!sources.length) throw new Error("没有可处理的音频源");
-      setText("runStatus", "已找到 " + sources.length + " 个选中图层，开始逐一识别");
-      var summary = { jobId: "job-" + Date.now(), segmentCount: 0, skippedSources: 0, cleanedSources: 0, totalSources: sources.length, engine: { name: runtime.engine }, warnings: (audioBatch.warnings || []).slice() };
+      setText("runStatus", state.host === "AEFT" ? "已找到 " + sources.length + " 个选中图层，开始逐一识别" : "序列 In/Out 音频已准备，开始识别");
+      var summary = { jobId: "job-" + Date.now(), segmentCount: 0, skippedSources: 0, cleanedSources: 0, manualCaptionImports: 0, totalSources: sources.length, engine: { name: runtime.engine }, warnings: (audioBatch.warnings || []).slice() };
       function runSource(index) {
         if (index >= sources.length) {
           if (!summary.segmentCount) return finishRun(null, null, summary);
@@ -975,7 +952,7 @@
           if (event.detail && event.detail.placement) state.activePlacement = event.detail.placement;
           var percent = event.phasePercent === null || event.phasePercent === undefined ? null : (index * 100 + Number(event.phasePercent)) / sources.length;
           var deviceLabel = state.activePlacement === "hybrid" || state.activeDevice === "vulkan" ? "GPU + CPU 混合" : (state.activeDevice === "cuda" ? "GPU" : (state.activeDevice === "cpu" ? "CPU" : "正在调度"));
-          progress(event.phase, percent, "图层 " + (index + 1) + "/" + sources.length + " · " + deviceLabel + " · " + runtime.engine);
+          progress(event.phase, percent, (state.host === "AEFT" ? "图层 " + (index + 1) + "/" + sources.length : "序列音频") + " · " + deviceLabel + " · " + runtime.engine);
         });
         runner.on("warning", function (warning) { setText("runStatus", warning.message); });
         var timelineInMs = Number(source.timelineInMs !== undefined ? source.timelineInMs : source.inMs);
@@ -989,7 +966,11 @@
           summary.segmentCount += (result.segments || []).length;
           (result.warnings || []).forEach(function (warning) { summary.warnings.push(warning); });
           if (result.status === "skipped" || !(result.segments || []).length) return runSource(index + 1);
-          writeHostResult(result, source).then(function () { progress("writingHost", (index + 1) * 100 / sources.length, "已写入图层 " + (index + 1) + "/" + sources.length + " 的独立字幕"); runSource(index + 1); }).catch(finishRun);
+          writeHostResult(result, source).then(function (hostWriteResult) {
+            if (hostWriteResult && hostWriteResult.data && hostWriteResult.data.requiresManualPlacement) summary.manualCaptionImports += 1;
+            progress("writingHost", (index + 1) * 100 / sources.length, state.host === "AEFT" ? "已写入图层 " + (index + 1) + "/" + sources.length + " 的独立字幕" : "已创建序列字幕");
+            runSource(index + 1);
+          }).catch(finishRun);
         });
       }
       runSource(0);
@@ -1048,19 +1029,20 @@
     progress("writingHost", null, "正在创建 Adobe 字幕对象");
     var style = styleSettings();
     if (state.host === "AEFT") {
+      if (state.outputMode === "compTemplate") {
+        if (!state.compTemplate || !state.compTemplate.textLayerIds || !state.compTemplate.textLayerIds.length) throw new Error("请先在“合成模板”中选择模板合成并保留至少一个勾选文字图层");
+        return hostCall("ae.comp.subtitles.create", { compId: state.context.activeComp.itemId, segmentsFile: result.artifacts.json, templateCompId: state.compTemplate.compId, textLayerIds: state.compTemplate.textLayerIds, displayLanguages: displayLanguages(), layerPrefix: "LWS 合成字幕" });
+      }
       return hostCall("ae.subtitles.create", { compId: state.context.activeComp.itemId, mode: state.outputMode, segmentsFile: result.artifacts.json, displayLanguages: displayLanguages(), templateLayers: templateRecorder.getItems().map(function (item) { return { compId: item.compId, layerId: item.layerId }; }), moduleSelections: templateTree.getSelection(), position: style.center, styleOverrides: { font: style.font, fontSize: style.fontSize, tracking: style.tracking, leading: style.leading }, layerPrefix: source && source.layerName ? "LWS 字幕 · " + source.layerName : "LWS 字幕" });
     }
-    if (state.outputMode === "captions") {
-      var srtPath = path.join(path.dirname(result.artifacts.json), "captions.srt");
-      var languages = displayLanguages();
-      var outputSegments = result.segments.map(function (segment) {
-        var values = languages.map(function (language) { return language === "source" ? segment.sourceText : (segment.translations[language] && segment.translations[language].text || segment.sourceText); });
-        return { startMs: segment.startMs, endMs: segment.endMs, sourceText: values.join("\n") };
-      });
-      fs.writeFileSync(srtPath, srt.toSrt(outputSegments), "utf8");
-      return hostCall("pr.subtitles.captions.create", { srtPath: srtPath, startSeconds: 0 });
-    }
-    return hostCall("pr.subtitles.graphics.create", { mogrtPath: path.join(root, "assets", "LocalWhisper_Default_25_6.mogrt"), segmentsFile: result.artifacts.json, displayLanguages: displayLanguages(), videoTrackIndex: Number(byId("videoTrackSelect").value || 0), style: style });
+    var srtPath = path.join(path.dirname(result.artifacts.json), "captions.srt");
+    var languages = displayLanguages();
+    var outputSegments = result.segments.map(function (segment) {
+      var values = languages.map(function (language) { return language === "source" ? segment.sourceText : (segment.translations[language] && segment.translations[language].text || segment.sourceText); });
+      return { startMs: segment.startMs, endMs: segment.endMs, sourceText: values.join("\n") };
+    });
+    fs.writeFileSync(srtPath, srt.toSrt(outputSegments), "utf8");
+    return hostCall("pr.subtitles.captions.create", { srtPath: srtPath, startSeconds: 0 });
   }
 
   function finishRun(error, hostResult, transcriptionResult) {
@@ -1077,6 +1059,10 @@
     var count = transcriptionResult && transcriptionResult.segmentCount !== undefined ? transcriptionResult.segmentCount : (transcriptionResult && transcriptionResult.segments ? transcriptionResult.segments.length : (hostResult && hostResult.data && hostResult.data.count || 0));
     if (!count) {
       setStatus("warning", "没有检测到可识别语音", transcriptionResult && transcriptionResult.skippedSources ? "选中的图层没有音频波形，已跳过" : "未创建字幕图层");
+      return;
+    }
+    if (transcriptionResult && transcriptionResult.manualCaptionImports) {
+      setStatus("warning", "SRT 字幕已导入项目", count + " 条 · 当前 Premiere Pro 需要把导入的字幕素材手动拖入时间轴");
       return;
     }
     setStatus("ready", "字幕已生成", count + " 条 · " + (transcriptionResult && transcriptionResult.engine ? transcriptionResult.engine.name : "Adobe"));
@@ -1112,7 +1098,7 @@
     all("#positionGrid button").forEach(function (button) { button.addEventListener("click", function () { all("#positionGrid button").forEach(function (item) { item.classList.remove("active"); }); button.classList.add("active"); byId("positionX").value = button.dataset.x; byId("positionY").value = button.dataset.y; updatePreview(); }); });
     ["positionX", "positionY", "fontInput", "fontSizeInput", "trackingInput", "leadingInput", "maxLineCharsInput", "maxLinesInput"].forEach(function (id) { byId(id).addEventListener("input", function () { updatePreview(); saveSettings(); }); });
     byId("maxLineCharsInput").addEventListener("input", function () { byId("maxLinesInput").disabled = Number(this.value) === 0; });
-    all("[data-output]").forEach(function (button) { button.addEventListener("click", function () { var parent = button.parentElement; Array.prototype.slice.call(parent.querySelectorAll("button")).forEach(function (item) { item.classList.toggle("active", item === button); }); state.outputMode = button.dataset.output; byId("premiereTrackField").hidden = !(state.host === "PPRO" && state.outputMode === "graphics"); saveSettings(); }); });
+    all("[data-output]").forEach(function (button) { button.addEventListener("click", function () { var parent = button.parentElement; Array.prototype.slice.call(parent.querySelectorAll("button")).forEach(function (item) { item.classList.toggle("active", item === button); }); state.outputMode = button.dataset.output; updateCompTemplateVisibility(); saveSettings(); }); });
     byId("recordTemplatesButton").addEventListener("click", function () { toggleRecorder(this, templateRecorder, byId("templateLayerList"), function () { loadTreeFor(templateRecorder.getItems(), templateTree, "template-tree"); }); });
     byId("chooseAepButton").addEventListener("click", chooseAep);
     byId("chooseEffectAepButton").addEventListener("click", chooseEffectAep);
@@ -1123,6 +1109,8 @@
     byId("recordEffectSourcesButton").addEventListener("click", function () { toggleRecorder(this, effectSourceRecorder, byId("effectSourceList"), function () { state.effectTreeLoading = true; updateEffectButton(); loadTreeFor(effectSourceRecorder.getItems(), effectTree, "effect-tree", function () { state.effectTreeLoading = false; updateEffectButton(); }); }, byId("recordEffectTargetsButton")); });
     byId("recordEffectTargetsButton").addEventListener("click", function () { toggleRecorder(this, effectTargetRecorder, byId("effectTargetList"), updateEffectButton, byId("recordEffectSourcesButton")); });
     byId("applyEffectsButton").addEventListener("click", applyEffects);
+    byId("compTemplateSelect").addEventListener("change", onCompTemplateChange);
+    byId("refreshCompTemplateButton").addEventListener("click", loadCompTemplateList);
     byId("runButton").addEventListener("click", runTranscription);
     byId("cancelButton").addEventListener("click", function () { if (state.currentRunner) state.currentRunner.cancel(); Object.keys(state.encoderJobs).forEach(function (id) { state.encoderJobs[id].reject(new Error("任务已取消")); delete state.encoderJobs[id]; }); });
     byId("downloadModelButton").addEventListener("click", function () { showDialog("获取推荐模型", "安装器会从外置 resources 清单安装或下载 ggml-large-v3-turbo-q5_0。当前面板不会静默下载。", "打开扫描菜单", function () { byId("scanMenu").open = true; }); });
@@ -1149,6 +1137,94 @@
   }
 
   function updateEffectButton() { byId("applyEffectsButton").disabled = state.effectTreeLoading || effectSourceRecorder.recording || effectTargetRecorder.recording || !effectSourceRecorder.getItems().length || !effectTargetRecorder.getItems().length || !effectTree.selectedModuleIds().length; }
+
+  function updateCompTemplateVisibility() {
+    var details = byId("compTemplateDetails");
+    if (!details) return;
+    details.hidden = state.host !== "AEFT" || !byId("enableSttInput").checked || state.outputMode !== "compTemplate";
+  }
+
+  function loadCompTemplateList() {
+    var select = byId("compTemplateSelect");
+    if (!select || state.host !== "AEFT") return;
+    hostCall("ae.aep.listComps", {}).then(function (result) {
+      var comps = result.data && result.data.comps || [];
+      state.compTemplateCandidates = comps;
+      select.innerHTML = "";
+      if (!comps.length) {
+        var empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "项目中没有包含文字图层的合成";
+        select.appendChild(empty);
+        setText("compTemplateTiming", "节奏驱动：未选择模板");
+        return;
+      }
+      comps.forEach(function (comp, index) {
+        var option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = comp.name + " · " + comp.width + "×" + comp.height + " · " + Number(comp.duration).toFixed(1) + "s · " + comp.textLayerCount + " 个文字层";
+        select.appendChild(option);
+      });
+      onCompTemplateChange();
+    }).catch(function (error) {
+      select.innerHTML = "";
+      var failed = document.createElement("option");
+      failed.value = "";
+      failed.textContent = "合成列表读取失败";
+      select.appendChild(failed);
+      setText("compTemplateTiming", "节奏驱动：读取失败 · " + error.message);
+    });
+  }
+
+  function onCompTemplateChange() {
+    var select = byId("compTemplateSelect");
+    var comp = state.compTemplateCandidates[Number(select.value)];
+    state.compTemplate = null;
+    var container = byId("compTemplateTextLayers");
+    container.innerHTML = "";
+    if (!comp) {
+      setText("compTemplateTiming", "节奏驱动：未选择模板");
+      return;
+    }
+    setText("compTemplateTiming", "正在读取模板信息");
+    hostCall("ae.comp.templateInfo", { compId: comp.compId }).then(function (result) {
+      var info = result.data || {};
+      var fragment = document.createDocumentFragment();
+      (info.textLayers || []).forEach(function (layer) {
+        var label = document.createElement("label");
+        label.className = "picker-row";
+        var input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = true;
+        input.value = String(layer.layerId);
+        input.addEventListener("change", collectCompTemplateSelection);
+        var span = document.createElement("span");
+        var strong = document.createElement("strong");
+        strong.textContent = layer.name || ("图层 " + layer.index);
+        var small = document.createElement("small");
+        small.textContent = "图层 " + layer.index + " · " + Number(layer.outPoint - layer.inPoint).toFixed(1) + "s";
+        span.appendChild(strong);
+        span.appendChild(small);
+        label.appendChild(input);
+        label.appendChild(span);
+        fragment.appendChild(label);
+      });
+      container.appendChild(fragment);
+      state.compTemplate = { compId: info.compId, name: info.name, textLayerIds: (info.textLayers || []).map(function (layer) { return layer.layerId; }), progressDriver: info.progressDriver || null };
+      setText("compTemplateTiming", info.progressDriver
+        ? "节奏驱动：滑杆「" + info.progressDriver.effectName + "」· 每句按词级时间写进度键"
+        : "未找到 LWS Progress 滑杆：将尝试动画器 Start 键，否则整行线性拉伸");
+    }).catch(function (error) {
+      setText("compTemplateTiming", "模板信息读取失败 · " + error.message);
+    });
+  }
+
+  function collectCompTemplateSelection() {
+    if (!state.compTemplate) return;
+    var ids = [];
+    all("#compTemplateTextLayers input[type=checkbox]").forEach(function (input) { if (input.checked) ids.push(Number(input.value)); });
+    state.compTemplate.textLayerIds = ids;
+  }
 
   function installAdaptiveGrid() {
     var shell = document.querySelector(".panel-shell");
@@ -1204,9 +1280,9 @@
       return hostCall("common.capabilities");
     }).then(function (result) {
       state.capabilities = result.data.features || {};
-      if (state.host === "PPRO" && !fs.existsSync(path.join(root, "assets", "LocalWhisper_Default_25_6.mogrt"))) state.capabilities.graphics = false;
       applyCapabilities();
-      return Promise.all([loadContext(), loadFonts(), loadTracks()]);
+      if (state.host === "AEFT") loadCompTemplateList();
+      return Promise.all([loadContext(), loadFonts()]);
     }).then(function () {
       var saved = state.settings;
       if (saved && saved.models && saved.models.length) {

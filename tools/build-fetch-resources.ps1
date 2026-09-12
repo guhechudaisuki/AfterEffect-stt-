@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'hash-utils.ps1')
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $resourcesRoot = Join-Path $repoRoot 'resources'
 $manifestPath = Join-Path $resourcesRoot 'manifest.json'
@@ -44,7 +45,7 @@ if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
             Invoke-WebRequest -UseBasicParsing -Headers @{ 'User-Agent' = 'LocalWhisperSubtitles-ResourceBuild' } -Uri $runtime.downloadUrl -OutFile $partial
         }
         $downloaded = Get-Item -LiteralPath $partial
-        $downloadedHash = (Get-FileHash -LiteralPath $partial -Algorithm SHA256).Hash.ToLowerInvariant()
+        $downloadedHash = Get-Sha256Hex -LiteralPath $partial
         if ([long]$downloaded.Length -ne [long]$runtime.size -or $downloadedHash -ne [string]$runtime.sha256) {
             throw "Downloaded runtime failed pinned size/SHA-256 verification. No resource was installed."
         }

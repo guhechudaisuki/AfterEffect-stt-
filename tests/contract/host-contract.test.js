@@ -12,6 +12,7 @@ const files = {
     response: path.join(jsxRoot, "common/response.jsx"),
     keyframe: path.join(jsxRoot, "common/keyframe-time.jsx"),
     ae: path.join(jsxRoot, "AEFT/host.jsx"),
+    comp: path.join(jsxRoot, "AEFT/comp-copy.jsx"),
     pr: path.join(jsxRoot, "PPRO/host.jsx")
 };
 
@@ -43,7 +44,9 @@ test("loader evaluates every common dependency before the host adapter", () => {
     const responseIndex = source.indexOf("common/response.jsx");
     const keyframeIndex = source.indexOf("common/keyframe-time.jsx");
     const aeIndex = source.indexOf("AEFT/host.jsx");
+    const compIndex = source.indexOf("AEFT/comp-copy.jsx");
     assert.ok(jsonIndex >= 0 && responseIndex > jsonIndex && keyframeIndex > responseIndex && aeIndex > keyframeIndex);
+    assert.ok(compIndex > aeIndex, "comp-copy module must load after the AEFT adapter");
 });
 
 test("host files register the complete public route contract", () => {
@@ -52,16 +55,18 @@ test("host files register the complete public route contract", () => {
         "ae.selection.snapshot", "ae.aep.import", "ae.aep.listComps", "ae.comp.listTextLayers",
         "ae.layer.tree", "ae.subtitles.create", "ae.modules.copy"
     ];
+    const compRoutes = ["ae.comp.templateInfo", "ae.comp.subtitles.create"];
     const prRoutes = [
-        "common.capabilities", "pr.context.get", "pr.range.get", "pr.audio.export", "pr.tracks.list",
-        "pr.subtitles.graphics.create", "pr.subtitles.captions.create"
+        "common.capabilities", "pr.context.get", "pr.range.get", "pr.audio.export",
+        "pr.subtitles.captions.create"
     ];
     for (const route of aeRoutes) assert.match(read("ae"), new RegExp(`register\\("${route.replaceAll(".", "\\.")}"`));
+    for (const route of compRoutes) assert.match(read("comp"), new RegExp(`register\\("${route.replaceAll(".", "\\.")}"`));
     for (const route of prRoutes) assert.match(read("pr"), new RegExp(`register\\("${route.replaceAll(".", "\\.")}"`));
     assert.match(read("response"), /register\("common\.ping"/);
 });
 
-test("dispatcher always returns a JSON envelope and enforces Adobe 2020+", () => {
+test("dispatcher always returns a JSON envelope and enforces host-specific Adobe 2020+ versions", () => {
     const context = {
         $: {},
         app: { version: "17.0.0", name: "Adobe After Effects" },
@@ -94,6 +99,19 @@ test("dispatcher always returns a JSON envelope and enforces Adobe 2020+", () =>
     response = JSON.parse(context.$._LWS.dispatch("test.echo", request));
     assert.equal(response.ok, true);
 
+    context.BridgeTalk.appName = "premierepro";
+    context.$._LWS.hostCode = "PPRO";
+    context.app.version = "14.0.0";
+    response = JSON.parse(context.$._LWS.dispatch("test.echo", request));
+    assert.equal(response.ok, true);
+
+    context.app.version = "13.9.0";
+    response = JSON.parse(context.$._LWS.dispatch("test.echo", request));
+    assert.equal(response.ok, false);
+    assert.equal(response.error.code, "VERSION_UNSUPPORTED");
+
+    context.BridgeTalk.appName = "aftereffects";
+    context.$._LWS.hostCode = "AEFT";
     context.app.version = "17.0.0";
     response = JSON.parse(context.$._LWS.dispatch("test.echo", encodeURIComponent('{"apiVersion":"1.0","requestId":"bad-params","params":[]}')));
     assert.equal(response.ok, false);
@@ -134,22 +152,18 @@ test("AE audio export reads a source media file without a custom output-module t
     assert.match(audioRoute, /sourceStartMs/);
 });
 
-test("Premiere contract uses stable MOGRT IDs and the five-argument encoder API", () => {
+test("Premiere contract only exposes SRT/native captions and the five-argument encoder API", () => {
     const source = read("pr");
-    assert.match(source, /setMogrtParam\(component, \["LWS_TEXT"\]/);
-    assert.doesNotMatch(source, /"Source Text"|"源文本"/);
+    assert.doesNotMatch(source, /pr\.subtitles\.graphics\.create|importMGT|setMogrtParam|LWS_TEXT/);
     assert.match(source, /encodeSequence\(seq, params\.outputPath, preset\.fsName, app\.encoder\.ENCODE_IN_TO_OUT, 1\)/);
     assert.match(source, /var startAtTime = Number\(params\.startSeconds \|\| 0\)/);
     assert.doesNotMatch(source, /createCaptionTrack\(projectItem, timeFromSeconds/);
-    assert.match(source, /if \(clip\) clip\.remove\(\)/);
+    assert.match(source, /typeof seq\.createCaptionTrack === "function"/);
+    assert.match(source, /requiresManualPlacement: true/);
 });
 
-test("manual Adobe smoke scripts cover AE stretch and Premiere MOGRT parameter probes", () => {
+test("manual Adobe smoke script covers AE stretch", () => {
     const aeSmoke = fs.readFileSync(path.join(workspace, "tools/ae-smoke-test.jsx"), "utf8");
-    const prSmoke = fs.readFileSync(path.join(workspace, "tools/pr-smoke-panel/pr-mogrt-smoke-test.jsx"), "utf8");
     assert.match(aeSmoke, /layer-stretch-normalizes-template-keys/);
-    assert.match(prSmoke, /getParamForDisplayName\("LWS_TEXT"\)/);
-    assert.match(prSmoke, /if \(clip\) clip\.remove\(\)/);
     assert.doesNotThrow(() => new Function(aeSmoke.replace(/^#target[^\r\n]*[\r\n]+/, "")));
-    assert.doesNotThrow(() => new Function(prSmoke.replace(/^#target[^\r\n]*[\r\n]+/, "")));
 });

@@ -210,7 +210,10 @@
         loadScript("common/json2.jsx");
         loadScript("common/response.jsx");
         loadScript("common/keyframe-time.jsx");
-        if (status.host === "AEFT") loadScript("AEFT/host.jsx");
+        if (status.host === "AEFT") {
+            loadScript("AEFT/host.jsx");
+            loadScript("AEFT/comp-copy.jsx");
+        }
         else if (status.host === "PPRO") loadScript("PPRO/host.jsx");
         else status.errors.push({ stage: "hostAdapter", error: "Unsupported Adobe host" });
         status.ok = status.errors.length === 0 && typeof $._LWS.dispatch === "function";

@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'hash-utils.ps1')
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $ResourcesRoot) {
     $ResourcesRoot = Join-Path $repoRoot 'resources'
@@ -58,7 +59,7 @@ foreach ($entry in $entries) {
     }
 
     $file = Get-Item -LiteralPath $filePath
-    $hash = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $hash = Get-Sha256Hex -LiteralPath $filePath
     if ($Check) {
         if ([long]$entry.size -ne [long]$file.Length) {
             throw "Size mismatch for $($entry.id): manifest=$($entry.size), actual=$($file.Length)"

@@ -6,11 +6,13 @@ $._LWS.apiVersion = "1.0";
 
 $._LWS.versionInfo = function () {
     var match = /^(\d+)\.(\d+)/.exec(String(app.version || ""));
+    var requiredMajor = $._LWS.hostCode === "PPRO" ? 14 : 17;
     return {
         raw: String(app.version || ""),
         major: match ? Number(match[1]) : null,
         minor: match ? Number(match[2]) : null,
-        supported: !!(match && Number(match[1]) >= 17)
+        requiredMajor: requiredMajor,
+        supported: !!(match && Number(match[1]) >= requiredMajor)
     };
 };
 
@@ -51,7 +53,9 @@ $._LWS.dispatch = function (route, encodedRequest) {
     if (request.apiVersion && request.apiVersion !== $._LWS.apiVersion) return JSON.stringify($._LWS.envelope(request.requestId, false, null, [], $._LWS.errorObject("API_VERSION_UNSUPPORTED", "宿主 API 版本不兼容", { requested: request.apiVersion, supported: $._LWS.apiVersion }), startedAt));
     if (!Object.prototype.hasOwnProperty.call($._LWS.routes, route) || typeof $._LWS.routes[route] !== "function") return JSON.stringify($._LWS.envelope(request.requestId, false, null, [], $._LWS.errorObject("UNKNOWN_METHOD", "未知宿主方法", { route: route }), startedAt));
     if (route !== "common.ping" && route !== "common.capabilities" && !$._LWS.versionInfo().supported) {
-        return JSON.stringify($._LWS.envelope(request.requestId, false, null, [], $._LWS.errorObject("VERSION_UNSUPPORTED", "当前插件需要 Adobe 2020（17.x）或更高版本", { actual: String(app.version || ""), required: "17.x+" }, false), startedAt));
+        var versionInfo = $._LWS.versionInfo();
+        var productName = $._LWS.hostCode === "PPRO" ? "Premiere Pro" : "After Effects";
+        return JSON.stringify($._LWS.envelope(request.requestId, false, null, [], $._LWS.errorObject("VERSION_UNSUPPORTED", "当前插件需要 " + productName + " 2020 或更高版本", { actual: String(app.version || ""), required: String(versionInfo.requiredMajor) + ".x+" }, false), startedAt));
     }
     try {
         var result = $._LWS.routes[route](request.params || {}, request) || {};

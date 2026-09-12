@@ -91,6 +91,18 @@ test("selected AE audio/video layers are transcribed one source at a time", () =
     assert.doesNotMatch(app, /aggregate\.segments/);
 });
 
+test("Premiere exported In/Out audio keeps sequence time without trimming the WAV twice", () => {
+    const exportStart = app.indexOf('var preset = path.join(root, "presets", "LocalWhisper_PCM_16k_Mono.epr")');
+    const exportEnd = app.indexOf("function runTranscription", exportStart);
+    const premiereExport = app.slice(exportStart, exportEnd);
+    assert.match(premiereExport, /inMs: Math\.round\(Number\(state\.range\.start\.seconds\) \* 1000\)/);
+    assert.match(premiereExport, /outMs: Math\.round\(Number\(state\.range\.end\.seconds\) \* 1000\)/);
+    assert.doesNotMatch(premiereExport, /sourceStartMs|sourceEndMs/);
+    assert.match(app, /sourceStartMs: Number\(source\.sourceStartMs\) \|\| 0/);
+    assert.match(app, /sourceEndMs: Number\(source\.sourceEndMs\) \|\| null/);
+    assert.match(app, /return hostCall\("pr\.subtitles\.captions\.create", \{ srtPath: srtPath, startSeconds: 0 \}\)/);
+});
+
 test("silent selected layers are skipped before Whisper starts", () => {
     assert.match(preprocessor, /hasAudioSignal/);
     assert.match(runner, /hasAudioSignal/);

@@ -90,11 +90,18 @@ test("custom install is bring-your-own-resource and cannot download runtimes", (
 });
 
 test("installer and extension accept Adobe 2020 and newer hosts", () => {
-    assert.match(domainSource, /MinimumSupportedHostMajor = 17/);
-    assert.match(source, /ProductInfo\.IsSupportedHostVersion\(major, minor\)/);
-    assert.match(hostDetectorSource, /ProductInfo\.IsSupportedHostVersion\(major, minor\)/);
+    assert.match(domainSource, /MinimumSupportedAfterEffectsMajor = 17/);
+    assert.match(domainSource, /MinimumSupportedPremiereMajor = 14/);
+    assert.match(source, /ProductInfo\.IsSupportedHostVersion\([^,]+, major, minor\)/);
+    assert.match(hostDetectorSource, /ProductInfo\.IsSupportedHostVersion\(spec\.Code, major, minor\)/);
     assert.match(engineSource, /受支持的 2020\+ 版本/);
-    assert.match(manifestSource, /Version="\[17\.0,999\.0\)"/g);
+    assert.match(manifestSource, /Host Name="AEFT" Version="\[17\.0,999\.0\)"/);
+    assert.match(manifestSource, /Host Name="PPRO" Version="\[14\.0,999\.0\)"/);
+    assert.match(manifestSource, /RequiredRuntime Name="CSXS" Version="9\.0"/);
+});
+
+test("installer enables install only when every selected host is supported", () => {
+    assert.match(source, /bool hasHost = \(selectedAe \|\| selectedPr\)[\s\S]*&& \(!selectedAe \|\| hasAe\)[\s\S]*&& \(!selectedPr \|\| hasPr\)/);
 });
 
 test("host detection probes both Windows program roots and nested Adobe executables", () => {

@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "hash-utils.ps1")
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $scriptPath = Join-Path $PSScriptRoot "create-mogrt.jsx"
 $resultPath = Join-Path $projectRoot "artifacts\mogrt\build-result.txt"
@@ -43,4 +44,4 @@ if (-not (Test-Path -LiteralPath $mogrtPath)) { throw "MOGRT file is missing aft
 
 $asset = Get-Item -LiteralPath $mogrtPath
 Write-Output ("MOGRT_BYTES=" + $asset.Length)
-Write-Output ("MOGRT_SHA256=" + (Get-FileHash -LiteralPath $mogrtPath -Algorithm SHA256).Hash)
+Write-Output ("MOGRT_SHA256=" + (Get-Sha256Hex -LiteralPath $mogrtPath).ToUpperInvariant())

@@ -111,7 +111,7 @@ namespace LocalWhisperSubtitles.Setup
                 int major = versionInfo.ProductMajorPart != 0 ? versionInfo.ProductMajorPart : versionInfo.FileMajorPart;
                 int minor = versionInfo.ProductMinorPart != 0 ? versionInfo.ProductMinorPart : versionInfo.FileMinorPart;
                 string version = !string.IsNullOrWhiteSpace(versionInfo.ProductVersion) ? versionInfo.ProductVersion : versionInfo.FileVersion;
-                bool supported = ProductInfo.IsSupportedHostVersion(major, minor);
+                bool supported = ProductInfo.IsSupportedHostVersion(spec.Code, major, minor);
                 HostInstallation found = new HostInstallation
                 {
                     HostCode = spec.Code,
@@ -120,7 +120,7 @@ namespace LocalWhisperSubtitles.Setup
                     Version = version,
                     Found = true,
                     Supported = supported,
-                    Status = supported ? "Supported Adobe 2020+" : "Installed, but Adobe 2020+ is required"
+                    Status = supported ? "Supported Adobe 2020+" : "Installed, but " + ProductInfo.SupportedHostLabel(spec.Code) + " is required"
                 };
                 if (supported) return found;
                 if (bestUnsupported == null) bestUnsupported = found;

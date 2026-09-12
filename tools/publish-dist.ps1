@@ -5,9 +5,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'hash-utils.ps1')
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $SourceRoot) { $SourceRoot = Join-Path $repoRoot 'installer\artifacts' }
-if (-not $DestinationRoot) { $DestinationRoot = Join-Path $repoRoot 'dist\LocalWhisperSubtitles-3.0.0-win-x64' }
+if (-not $DestinationRoot) { $DestinationRoot = Join-Path $repoRoot 'dist\LocalWhisperSubtitles-3.1.1-win-x64' }
 $source = [System.IO.Path]::GetFullPath($SourceRoot)
 $destination = [System.IO.Path]::GetFullPath($DestinationRoot)
 $repoPrefix = $repoRoot.TrimEnd('\') + '\'
@@ -29,4 +30,9 @@ Move-Item -LiteralPath $staging -Destination $destination
 
 $selfTest = Start-Process -FilePath (Join-Path $destination 'Setup.exe') -ArgumentList '--self-test' -Wait -PassThru -WindowStyle Hidden
 if ($selfTest.ExitCode -ne 0) { throw "Published Setup.exe self-test failed: $($selfTest.ExitCode)" }
-Get-FileHash -Algorithm SHA256 (Join-Path $destination 'Setup.exe')
+$publishedSetup = Join-Path $destination 'Setup.exe'
+[PSCustomObject]@{
+    Algorithm = 'SHA256'
+    Hash = (Get-Sha256Hex -LiteralPath $publishedSetup).ToUpperInvariant()
+    Path = $publishedSetup
+}

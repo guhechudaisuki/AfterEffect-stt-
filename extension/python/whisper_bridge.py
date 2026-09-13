@@ -544,6 +544,69 @@ def transcribe_regions(request, decode_region):
     return {"segments": output, "language": language}
 
 
+def transformers_timed_words(result, fallback_duration_ms=None):
+    """Preserve untimed text between known anchors without inventing word timing.
+
+    Consecutive incomplete chunks share one estimated interval. Fully timed
+    chunks keep their original boundaries; VAD clamping still happens later.
+    """
+    chunks = []
+    for chunk in result.get("chunks") or []:
+        text = chunk.get("text") or ""
+        if not text.strip():
+            continue
+        timestamp = chunk.get("timestamp") or ()
+        start = _finite_number(timestamp[0]) if len(timestamp) == 2 else None
+        end = _finite_number(timestamp[1]) if len(timestamp) == 2 else None
+        chunks.append({"word": text, "start": start, "end": end,
+                       "probability": chunk.get("score", chunk.get("probability"))})
+
+    def complete(word):
+        return word["start"] is not None and word["end"] is not None and word["end"] >= word["start"]
+
+    duration = max(1.0, _finite_number(fallback_duration_ms, 0.0)) / 1000.0
+    words = []
+    index = 0
+    while index < len(chunks):
+        if complete(chunks[index]):
+            words.append(chunks[index])
+            index += 1
+            continue
+        first = index
+        while index < len(chunks) and not complete(chunks[index]):
+            index += 1
+        text = "".join(word["word"] for word in chunks[first:index])
+        probabilities = [_finite_number(word["probability"]) for word in chunks[first:index]]
+        probabilities = [value for value in probabilities if value is not None]
+        probability = min(probabilities) if probabilities else None
+        left = words[-1]["end"] if words else 0.0
+        right = chunks[index]["start"] if index < len(chunks) else duration
+        start = chunks[first]["start"]
+        end = chunks[index - 1]["end"]
+        start = max(left, start) if start is not None else left
+        end = min(right, end) if end is not None else right
+        if end <= start:
+            # There is no timing gap to allocate. Keep the text on an adjacent
+            # anchor instead of creating a zero-length word that gets dropped.
+            anchor = None
+            if index < len(chunks) and (not words or chunks[first]["start"] is not None and start >= right):
+                anchor = chunks[index]
+                anchor["word"] = text + anchor["word"]
+            elif words:
+                anchor = words[-1]
+                anchor["word"] += text
+            if anchor is not None:
+                anchor["timestampEstimated"] = True
+                anchor_probability = _finite_number(anchor["probability"])
+                if probability is not None:
+                    anchor["probability"] = min(anchor_probability, probability) if anchor_probability is not None else probability
+                continue
+            start, end = 0.0, duration
+        words.append({"word": text, "start": start, "end": end,
+                      "probability": probability, "timestampEstimated": True})
+    return words
+
+
 def segment_timestamp_chunks(result, language, fallback_duration_ms=None):
     """Convert Transformers chunks into the bridge's timed format.
 
@@ -555,18 +618,12 @@ def segment_timestamp_chunks(result, language, fallback_duration_ms=None):
     """
     result = result if isinstance(result, dict) else {}
     fallback_segments = []
-    for chunk in result.get("chunks") or []:
-        timestamp = chunk.get("timestamp") or ()
-        if len(timestamp) != 2 or timestamp[0] is None or timestamp[1] is None:
-            continue
-        text = chunk.get("text") or ""
-        if not text.strip():
-            continue
+    for word in transformers_timed_words(result, fallback_duration_ms):
         fallback_segments.append({
-            "start": timestamp[0],
-            "end": timestamp[1],
-            "text": text,
-            "words": [{"word": text, "start": timestamp[0], "end": timestamp[1]}],
+            "start": word["start"],
+            "end": word["end"],
+            "text": word["word"],
+            "words": [word],
         })
     if fallback_segments:
         return {"segments": normalize_segments(fallback_segments), "language": language if language not in (None, "", "auto") else None}
@@ -898,15 +955,17 @@ def run_transformers(request):
         call_kwargs["condition_on_prev_tokens"] = not bounded_region
         if isinstance(overrides, dict):
             call_kwargs.update(overrides)
+        # ASR preprocessing pops raw/sampling_rate from the input dict. Give
+        # every attempt its own container; share the read-only sample buffer.
         try:
             return recognizer(
-                audio,
+                dict(audio),
                 return_timestamps=timestamp_mode,
                 generate_kwargs=call_kwargs,
             )
         except (TypeError, ValueError) as error:
             message = str(error).lower()
-            if "condition_on_prev_tokens" not in message and not any(
+            if "condition_on_prev_tokens" not in message or not any(
                 marker in message
                 for marker in (
                     "unexpected keyword",
@@ -919,13 +978,15 @@ def run_transformers(request):
             compatible_kwargs = dict(call_kwargs)
             compatible_kwargs.pop("condition_on_prev_tokens", None)
             return recognizer(
-                audio,
+                dict(audio),
                 return_timestamps=timestamp_mode,
                 generate_kwargs=compatible_kwargs,
             )
 
     def decode(path, _region_index, _offset_ms, _start_ms, _end_ms):
         audio = read_pcm_wav(path)
+        # Timestamps are relative to the padded WAV, not the unpadded VAD span.
+        fallback_duration_ms = wav_duration_ms(path)
         # Always request word timestamps. Segment timestamps alone lose the
         # pauses needed for accurate subtitle boundaries. A guarded fallback
         # below handles Transformers releases with the short-clip indexing bug.
@@ -942,36 +1003,21 @@ def run_transformers(request):
             if "list index out of range" not in str(error):
                 raise
             result = recognize(audio, True, bounded_region)
-            fallback_duration_ms = (
-                max(1, int(_end_ms) - int(_start_ms))
-                if _start_ms is not None and _end_ms is not None
-                else wav_duration_ms(path)
-            )
             return segment_timestamp_chunks(result, language, fallback_duration_ms)
         def timed_segments(payload):
-            chunks = payload.get("chunks") or []
-            words = []
-            for chunk in chunks:
-                timestamp = chunk.get("timestamp") or ()
-                if len(timestamp) != 2 or timestamp[0] is None or timestamp[1] is None:
-                    continue
-                words.append({
-                    "word": chunk.get("text") or "",
-                    "start": timestamp[0],
-                    "end": timestamp[1],
-                    "probability": chunk.get("score", chunk.get("probability")),
-                })
+            words = transformers_timed_words(payload, fallback_duration_ms)
             if not words:
-                return []
-            return normalize_segments([{
+                return [], True
+            segments = normalize_segments([{
                 "start": words[0]["start"],
                 "end": words[-1]["end"],
                 "text": payload.get("text") or "",
                 "words": words,
             }])
+            return segments, any(word.get("timestampEstimated") for word in words)
 
-        normalized = timed_segments(result)
-        if bounded_region and temperature_fallback_enabled(request) and _quality_retry_needed(normalized):
+        normalized, estimated_timing = timed_segments(result)
+        if bounded_region and temperature_fallback_enabled(request) and (estimated_timing or _quality_retry_needed(normalized)):
             try:
                 retry_result = recognize(
                     audio,
@@ -979,11 +1025,14 @@ def run_transformers(request):
                     True,
                     {"num_beams": 8, "temperature": 0.2},
                 )
-                retry_normalized = timed_segments(retry_result)
+                retry_normalized, retry_estimated_timing = timed_segments(retry_result)
             except (IndexError, TypeError, ValueError):
                 retry_result = None
                 retry_normalized = []
+                retry_estimated_timing = True
             selected = _prefer_quality_candidate(normalized, retry_normalized)
+            if estimated_timing and not retry_estimated_timing and retry_normalized and _candidate_quality(normalized) is None:
+                selected = retry_normalized
             if selected is retry_normalized and retry_normalized:
                 result = retry_result
             normalized = selected
@@ -992,11 +1041,6 @@ def run_transformers(request):
                 "segments": normalized,
                 "language": language if language not in (None, "", "auto") else None,
             }
-        fallback_duration_ms = (
-            max(1, int(_end_ms) - int(_start_ms))
-            if _start_ms is not None and _end_ms is not None
-            else wav_duration_ms(path)
-        )
         return segment_timestamp_chunks(result, language, fallback_duration_ms)
     result = transcribe_regions(request, decode)
     result["engine"] = {

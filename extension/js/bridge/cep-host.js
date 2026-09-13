@@ -4,6 +4,23 @@ function makeId() {
   return "req-" + Date.now() + "-" + Math.floor(Math.random() * 1000000);
 }
 
+function repairHostText(value) {
+  var text = String(value === undefined || value === null ? "" : value);
+  // ExtendScript/CEP versions in the field can expose UTF-8 bytes as Latin-1.
+  // Only repair strings with the characteristic mojibake markers so normal
+  // Latin-1 filenames and messages are left untouched.
+  if (!/[ÃÂÆåæçèéä]/.test(text)) return text;
+  var encoded = "";
+  var index;
+  var code;
+  for (index = 0; index < text.length; index += 1) {
+    code = text.charCodeAt(index);
+    if (code > 255) return text;
+    encoded += "%" + (code < 16 ? "0" : "") + code.toString(16);
+  }
+  try { return decodeURIComponent(encoded); } catch (ignore) { return text; }
+}
+
 function CepHostBridge(cep) {
   this.cep = cep || (typeof window !== "undefined" ? window.__adobe_cep__ : null);
 }
@@ -27,7 +44,7 @@ CepHostBridge.prototype.call = function (route, params, callback) {
     var envelope;
     try { envelope = JSON.parse(responseText); } catch (error) { return callback(new Error("Invalid host response: " + String(responseText).slice(0, 200))); }
     if (!envelope.ok) {
-      var hostError = new Error(envelope.error && envelope.error.message || "Host request failed");
+      var hostError = new Error(repairHostText(envelope.error && envelope.error.message || "Host request failed"));
       hostError.code = envelope.error && envelope.error.code;
       hostError.details = envelope.error && envelope.error.details;
       return callback(hostError, null, envelope);

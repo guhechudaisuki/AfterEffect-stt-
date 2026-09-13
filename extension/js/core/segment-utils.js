@@ -75,7 +75,8 @@ function normalizeWords(words, minimumMs, maximumMs) {
       startMs: start,
       endMs: end,
       probability: number(word.probability, number(word.p, null)),
-      vadRegionId: word.vadRegionId || null
+      vadRegionId: word.vadRegionId || null,
+      timingEstimated: word.timingEstimated === true
     };
   }).filter(function (word) { return word.text && word.endMs >= word.startMs; }).sort(function (a, b) {
     return a.startMs - b.startMs || a.endMs - b.endMs;
@@ -314,6 +315,7 @@ function normalizeRawSegments(rawSegments, maximumMs) {
       endMs: endMs,
       text: cleanText(raw.text),
       words: normalizeWords(raw.words, startMs, endMs),
+      estimatedTiming: raw.estimatedTiming === true,
       vadRegions: raw.vadRegions || [],
       sourceSegmentIds: Array.isArray(raw.sourceSegmentIds) && raw.sourceSegmentIds.length ? raw.sourceSegmentIds.slice() : [raw.id || "raw-" + index]
     };
@@ -387,7 +389,7 @@ function buildCues(rawSegments, options) {
     // can split pauses, but are kept separate from trusted speech regions so
     // they never trim a quiet word out of the final cue.
     var vadRegions = raw.vadRegions && raw.vadRegions.length ? raw.vadRegions : (options.speechBoundaryHints || options.speechRegions);
-    var cues = raw.words.length ? splitWords(raw.words, raw, vadRegions, options) : estimatedCues(raw);
+    var cues = raw.words.length && !raw.estimatedTiming ? splitWords(raw.words, raw, vadRegions, options) : estimatedCues(raw);
     cues.forEach(function (cue) { output.push(cue); });
   });
   output.sort(function (a, b) { return a.relativeStartMs - b.relativeStartMs || a.relativeEndMs - b.relativeEndMs; });

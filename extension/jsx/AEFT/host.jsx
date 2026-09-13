@@ -1097,7 +1097,7 @@
             } catch (ignoreLayer) {}
         }
         if (!candidates.length && unsupportedTimeRemapIds.length) return fail("AE_TIME_REMAP_UNSUPPORTED", "选中图层启用了时间重映射，无法从源文件准确还原非线性音频时间", { layerIds: unsupportedTimeRemapIds });
-        if (!candidates.length) return fail("AE_AUDIO_SOURCE_NOT_FOUND", "合成中没有可直接读取的音频/视频源文件", { start: start, end: end });
+        if (!candidates.length) return fail("AE_AUDIO_SOURCE_NOT_FOUND", "选中的音频/视频图层没有可直接读取的源文件；请确认它是导入的媒体素材，而不是文字、特效或预合成", { start: start, end: end, layerIds: hasLayerFilter ? layerIds : [] });
         if (hasLayerFilter) candidates.sort(function (a, b) { return requestedOrder[String(a.layerId)] - requestedOrder[String(b.layerId)]; });
         var warnings = [];
         if (missingLayerIds.length) warnings.push({ code: "AE_AUDIO_LAYER_SOURCE_NOT_FOUND", layerIds: missingLayerIds });

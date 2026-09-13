@@ -624,9 +624,14 @@ def segment_timestamp_chunks(result, language, fallback_duration_ms=None):
             "end": word["end"],
             "text": word["word"],
             "words": [word],
+            "estimatedTiming": bool(word.get("timestampEstimated")),
         })
     if fallback_segments:
-        return {"segments": normalize_segments(fallback_segments), "language": language if language not in (None, "", "auto") else None}
+        normalized = normalize_segments(fallback_segments)
+        for index, segment in enumerate(normalized):
+            if index < len(fallback_segments) and fallback_segments[index].get("estimatedTiming"):
+                segment["estimatedTiming"] = True
+        return {"segments": normalized, "language": language if language not in (None, "", "auto") else None}
     text = result.get("text") or ""
     if not str(text).strip():
         return {"segments": [], "language": language if language not in (None, "", "auto") else None}
@@ -1014,6 +1019,9 @@ def run_transformers(request):
                 "text": payload.get("text") or "",
                 "words": words,
             }])
+            if any(word.get("timestampEstimated") for word in words):
+                for segment in segments:
+                    segment["estimatedTiming"] = True
             return segments, any(word.get("timestampEstimated") for word in words)
 
         normalized, estimated_timing = timed_segments(result)
@@ -1030,8 +1038,17 @@ def run_transformers(request):
                 retry_result = None
                 retry_normalized = []
                 retry_estimated_timing = True
+            # Compare candidates only after the VAD fence is applied. A retry
+            # may contain padding-only text that would otherwise replace a
+            # valid primary result and leave the host with no subtitle.
+            primary_in_region = shift_region_segments(normalized, _offset_ms, _start_ms, _end_ms, _region_index) if bounded_region else normalized
+            retry_in_region = shift_region_segments(retry_normalized, _offset_ms, _start_ms, _end_ms, _region_index) if bounded_region else retry_normalized
             selected = _prefer_quality_candidate(normalized, retry_normalized)
-            if estimated_timing and not retry_estimated_timing and retry_normalized and _candidate_quality(normalized) is None:
+            if primary_in_region and not retry_in_region:
+                selected = normalized
+            elif retry_in_region and not primary_in_region:
+                selected = retry_normalized
+            if estimated_timing and not retry_estimated_timing and retry_normalized and retry_in_region and _candidate_quality(normalized) is None:
                 selected = retry_normalized
             if selected is retry_normalized and retry_normalized:
                 result = retry_result

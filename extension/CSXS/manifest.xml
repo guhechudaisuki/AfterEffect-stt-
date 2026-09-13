@@ -2,10 +2,10 @@
 <ExtensionManifest Version="7.0"
   ExtensionBundleId="com.localwhisper.subtitles"
   ExtensionBundleName="Local Whisper Subtitles"
-  ExtensionBundleVersion="4.0.1"
+  ExtensionBundleVersion="4.0.3"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="com.localwhisper.subtitles.panel" Version="4.0.1" />
+    <Extension Id="com.localwhisper.subtitles.panel" Version="4.0.3" />
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>

@@ -19,6 +19,13 @@ test("AE transcription requests direct source media and preserves the source tri
     assert.match(app, /alreadyTrimmed: false/);
 });
 
+test("AE transcription filters the selection to audio/video layers without failing on other layers", () => {
+  const app = fs.readFileSync(path.join(workspace, "extension/js/app.js"), "utf8");
+  assert.match(app, /var audioLayers = layers\.filter\(function \(layer\) \{ return layer && layer\.hasAudio === true; \}\);/);
+  assert.match(app, /return \{ sources: \[\], warnings: \[\], skippedNonAudioLayers: layers\.length \};/);
+  assert.match(app, /noAudioSelection: state\.host === "AEFT"/);
+});
+
 test("audio preprocessor supports trimming a source media file before PCM conversion", () => {
     assert.match(preprocessor, /startMs/);
     assert.match(preprocessor, /endMs/);

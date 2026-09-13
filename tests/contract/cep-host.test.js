@@ -66,3 +66,20 @@ test("CEP bridge can explicitly bootstrap the installed extension root", async (
         });
     });
 });
+
+test("CEP bridge repairs mojibake in ExtendScript error messages", async () => {
+    const cep = { evalScript: function (_script, callback) {
+        const mojibake = Buffer.from("选中没有可直接读取的源文件", "utf8").toString("latin1");
+        callback(JSON.stringify({ ok: false, error: { code: "AE_AUDIO_SOURCE_NOT_FOUND", message: mojibake } }));
+    } };
+    const bridge = new Bridge(cep);
+    await new Promise((resolve, reject) => {
+        bridge.call("ae.audio.export", {}, (error) => {
+            try {
+                assert.equal(error.code, "AE_AUDIO_SOURCE_NOT_FOUND");
+                assert.equal(error.message, "选中没有可直接读取的源文件");
+                resolve();
+            } catch (assertionError) { reject(assertionError); }
+        });
+    });
+});

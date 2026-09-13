@@ -894,11 +894,10 @@
     if (state.host === "AEFT") {
       return hostCall("ae.selection.snapshot").then(function (selection) {
         var layers = selection.data && selection.data.layers || [];
-        var layerIds = layers.map(function (layer) { return layer.layerId; });
+        var audioLayers = layers.filter(function (layer) { return layer && layer.hasAudio === true; });
+        var layerIds = audioLayers.map(function (layer) { return layer.layerId; });
         if (!layerIds.length) {
-          var selectionError = new Error("请先在 AE 合成中选择一个或多个音频/视频图层");
-          selectionError.code = "AE_AUDIO_LAYER_SELECTION_REQUIRED";
-          throw selectionError;
+          return { sources: [], warnings: [], skippedNonAudioLayers: layers.length };
         }
         return hostCall("ae.audio.export", { compId: state.context.activeComp.itemId, start: state.range.start, end: state.range.end, layerIds: layerIds });
       }).then(function (result) {
@@ -936,7 +935,14 @@
     createAudioExport(exportStore.directory).then(function (audioBatch) {
       var sources = audioBatch.sources || [];
       var runtime = selectedRuntime();
-      if (!sources.length) throw new Error("没有可处理的音频源");
+      if (!sources.length) {
+        return finishRun(null, null, {
+          segmentCount: 0,
+          skippedSources: 0,
+          skippedNonAudioLayers: Number(audioBatch.skippedNonAudioLayers || 0),
+          noAudioSelection: state.host === "AEFT"
+        });
+      }
       setText("runStatus", state.host === "AEFT" ? "已找到 " + sources.length + " 个选中图层，开始逐一识别" : "序列 In/Out 音频已准备，开始识别");
       var summary = { jobId: "job-" + Date.now(), segmentCount: 0, skippedSources: 0, cleanedSources: 0, manualCaptionImports: 0, totalSources: sources.length, engine: { name: runtime.engine }, warnings: (audioBatch.warnings || []).slice() };
       function runSource(index) {
@@ -1054,7 +1060,8 @@
     }
     var count = transcriptionResult && transcriptionResult.segmentCount !== undefined ? transcriptionResult.segmentCount : (transcriptionResult && transcriptionResult.segments ? transcriptionResult.segments.length : (hostResult && hostResult.data && hostResult.data.count || 0));
     if (!count) {
-      setStatus("warning", "没有检测到可识别语音", transcriptionResult && transcriptionResult.skippedSources ? "选中的图层没有音频波形，已跳过" : "未创建字幕图层");
+      var emptyDetail = transcriptionResult && transcriptionResult.noAudioSelection ? "选中的图层中没有音频/视频层，已跳过" : (transcriptionResult && transcriptionResult.skippedSources ? "选中的音频层没有检测到波形，已跳过" : "未创建字幕图层");
+      setStatus("warning", "没有检测到可识别语音", emptyDetail);
       return;
     }
     if (transcriptionResult && transcriptionResult.manualCaptionImports) {

@@ -7,7 +7,7 @@ namespace LocalWhisperSubtitles.Setup
     internal static class ProductInfo
     {
         public const string Name = "Local Whisper Subtitles";
-        public const string Version = "4.0.3";
+        public const string Version = "4.0.4";
         public const string ExtensionId = "com.localwhisper.subtitles";
         public const int MinimumSupportedAfterEffectsMajor = 17;
         public const int MinimumSupportedPremiereMajor = 14;

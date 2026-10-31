@@ -212,6 +212,7 @@
         loadScript("common/keyframe-time.jsx");
         if (status.host === "AEFT") {
             loadScript("AEFT/host.jsx");
+            loadScript("AEFT/correction-highlight.jsx");
             loadScript("AEFT/composition-copy.jsx");
         }
         else if (status.host === "PPRO") loadScript("PPRO/host.jsx");

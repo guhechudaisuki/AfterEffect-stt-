@@ -13,6 +13,7 @@ const files = {
     keyframe: path.join(jsxRoot, "common/keyframe-time.jsx"),
     ae: path.join(jsxRoot, "AEFT/host.jsx"),
     comp: path.join(jsxRoot, "AEFT/composition-copy.jsx"),
+    highlight: path.join(jsxRoot, "AEFT/correction-highlight.jsx"),
     pr: path.join(jsxRoot, "PPRO/host.jsx")
 };
 

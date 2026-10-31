@@ -6,6 +6,16 @@
     return match ? decodeURIComponent(match[1].replace(/\+/g, " ")) : null;
   }
 
+  function updateLanguageControls(mode, host) {
+    document.getElementById("translationFields").hidden = mode === "source";
+    document.getElementById("targetLanguageBField").hidden = mode !== "bilingual";
+    var enabled = document.getElementById("enableCorrectionInput").checked;
+    document.getElementById("correctionOptions").hidden = !enabled;
+    document.getElementById("allowCompletionInput").disabled = !enabled;
+    document.getElementById("providerDetails").hidden = mode === "source" && !enabled;
+    document.getElementById("correctionHostNote").textContent = host === "PPRO" ? "PR 原生字幕轨的脚本接口不支持逐字颜色；纠错标色请在生成后的核对文件中查看。" : "有色部分为大模型纠正或补全的内容，其他文字保留模板颜色。";
+  }
+
   function initializeMock(host) {
     host = String(host || "AEFT").toUpperCase() === "PPRO" ? "PPRO" : "AEFT";
     var shell = document.querySelector(".panel-shell");
@@ -51,10 +61,11 @@
     Array.prototype.forEach.call(document.querySelectorAll("[data-translation-mode]"), function (button) {
       button.addEventListener("click", function () {
         Array.prototype.forEach.call(document.querySelectorAll("[data-translation-mode]"), function (item) { item.classList.toggle("active", item === button); });
-        document.getElementById("translationFields").hidden = button.dataset.translationMode === "source";
-        document.getElementById("targetLanguageBField").hidden = button.dataset.translationMode !== "bilingual";
+        updateLanguageControls(button.dataset.translationMode, host);
       });
     });
+    document.getElementById("enableCorrectionInput").addEventListener("change", function () { var active = document.querySelector("[data-translation-mode].active"); updateLanguageControls(active.dataset.translationMode, host); });
+    updateLanguageControls("source", host);
     if (queryValue("view") === "templates" && host === "AEFT") document.getElementById("templateDetails").open = true;
     if (queryValue("view") === "effects" && host === "AEFT") document.getElementById("effectCopyDetails").open = true;
     if (window.lucide) window.lucide.createIcons();
@@ -101,6 +112,8 @@
   var Runner = nodeRequire(path.join(root, "js", "core", "transcription-runner.js")).TranscriptionRunner;
   var srt = nodeRequire(path.join(root, "js", "core", "srt.js"));
   var translationClient = nodeRequire(path.join(root, "js", "core", "translation-client.js"));
+  var llmPostprocessor = nodeRequire(path.join(root, "js", "core", "llm-postprocessor.js"));
+  var subtitleDisplay = nodeRequire(path.join(root, "js", "core", "subtitle-display.js"));
   var tempStore = nodeRequire(path.join(root, "js", "core", "temp-job-store.js"));
   var bridge = new CepHostBridge(cep);
 
@@ -231,6 +244,7 @@
   }
 
   function setHostUi(host) {
+    updateLanguageControls(state.translationMode, host);
     state.host = host;
     if (compositionCopyUi) compositionCopyUi.setHost(host);
     document.querySelector(".panel-shell").dataset.host = host;
@@ -368,6 +382,7 @@
       devicePolicy: byId("deviceSelect").value,
       language: byId("languageSelect").value,
       translationMode: state.translationMode,
+      correction: correctionSettings(),
       outputMode: state.outputMode,
       style: styleSettings(),
       wrapping: { maxCharsPerLine: numberValue("maxLineCharsInput", 0), maxLines: numberValue("maxLinesInput", 2) },
@@ -404,6 +419,11 @@
       state.uvr5ScanPath = value.uvr5ScanPath || null;
       state.uvr5Models = value.uvr5Models || [];
       if (value.translationMode) state.translationMode = value.translationMode;
+      if (value.correction) {
+        byId("enableCorrectionInput").checked = value.correction.enabled === true;
+        byId("allowCompletionInput").checked = value.correction.allowCompletion === true;
+        if (/^#[0-9a-f]{6}$/i.test(value.correction.highlightColor)) byId("correctionColorInput").value = value.correction.highlightColor;
+      }
       if (value.outputMode) state.outputMode = value.outputMode;
       if (value.style) {
         if (value.style.font) byId("fontInput").value = value.style.font;
@@ -430,6 +450,8 @@
       if (value.uvr5ScanPath) setText("uvr5PathLabel", value.uvr5ScanPath);
       renderUvr5Models(value.selectedUvr5ModelId, value.uvr5Enabled === true);
       updateSttVisibility();
+      all("[data-translation-mode]").forEach(function (button) { button.classList.toggle("active", button.dataset.translationMode === state.translationMode); });
+      updateLanguageControls(state.translationMode, state.host);
       return value;
     } catch (ignore) { return null; }
   }
@@ -831,9 +853,13 @@
     var targets = [];
     if (state.translationMode === "single") targets.push(byId("targetLanguageA").value);
     if (state.translationMode === "bilingual") targets.push(byId("targetLanguageA").value, byId("targetLanguageB").value);
-    var reference = targets.length ? "translation-session" : null;
+    var reference = targets.length || byId("enableCorrectionInput").checked ? "translation-session" : null;
     if (reference) state.sessionApiKeys[reference] = byId("apiKeyInput").value;
-    return { mode: state.translationMode, targetLanguages: targets, baseUrl: byId("apiBaseUrl").value.trim(), model: byId("translationModel").value.trim(), apiKeyRef: reference, timeoutMs: 60000, batchMaxSegments: 30 };
+    return { mode: state.translationMode, targetLanguages: targets, baseUrl: byId("apiBaseUrl").value.trim(), model: byId("translationModel").value.trim(), apiKeyRef: reference, timeoutMs: byId("enableCorrectionInput").checked ? 180000 : 60000, batchMaxSegments: 30 };
+  }
+
+  function correctionSettings() {
+    return { enabled: byId("enableCorrectionInput").checked, allowCompletion: byId("allowCompletionInput").checked, highlightColor: byId("correctionColorInput").value || "#0000ff" };
   }
 
   function updateReadyState() {
@@ -853,7 +879,7 @@
 
   function progress(phase, percent, detail) {
     byId("progressWrap").hidden = false;
-     var labels = { preparingAudio: "处理音频", separatingVocals: "UVR5 人声提取", detectingSpeech: "FunASR VAD 语音边界", loadingModel: "加载模型", transcribing: "本地转写", segmenting: "自动断句", translating: "翻译字幕", writingHost: "写入 Adobe" };
+     var labels = { preparingAudio: "处理音频", separatingVocals: "UVR5 人声提取", detectingSpeech: "FunASR VAD 语音边界", loadingModel: "加载模型", transcribing: "本地转写", segmenting: "自动断句", translating: "翻译字幕", correcting: "LLM 纠错 / 翻译", writingHost: "写入 Adobe" };
     setText("progressText", labels[phase] || phase);
     setText("progressPercent", percent === null || percent === undefined ? "" : Math.round(percent) + "%");
     var bar = byId("progressBar");
@@ -924,9 +950,13 @@
     if (!byId("enableSttInput").checked || state.busy || !state.selectedModel || !selectedRuntime()) return;
     if (byId("enableUvr5Input").checked && !state.selectedUvr5Model) return showDialog("UVR5 未配置", "请先扫描并选择可用的 UVR5 模型，或关闭 UVR5。", null);
     var translation = translationSettings();
-    if (translation.targetLanguages.length && (!translation.baseUrl || !translation.model || !state.sessionApiKeys[translation.apiKeyRef])) return showDialog("翻译设置不完整", "请选择翻译模型并填写本次使用的 API Key。", null);
+    var correction = correctionSettings();
+    if ((translation.targetLanguages.length || correction.enabled) && (!translation.baseUrl || !translation.model || !state.sessionApiKeys[translation.apiKeyRef])) return showDialog("大模型设置不完整", "请填写大模型 API 地址、模型名称和本次使用的 API Key。", null);
     if (translation.targetLanguages.length === 2 && translation.targetLanguages[0] === translation.targetLanguages[1]) return showDialog("双语设置重复", "语言 A 和语言 B 需要选择不同语言。", null);
     state.busy = true;
+    state.cancelRequested = false;
+    state.lastCorrectionReview = null;
+    byId("openCorrectionReviewButton").hidden = true;
     startRunClock();
     updateReadyState();
     byId("cancelButton").hidden = false;
@@ -945,8 +975,56 @@
       }
       setText("runStatus", state.host === "AEFT" ? "已找到 " + sources.length + " 个选中图层，开始逐一识别" : "序列 In/Out 音频已准备，开始识别");
       var summary = { jobId: "job-" + Date.now(), segmentCount: 0, skippedSources: 0, cleanedSources: 0, manualCaptionImports: 0, totalSources: sources.length, engine: { name: runtime.engine }, warnings: (audioBatch.warnings || []).slice() };
+      var records = [];
+      var selectedDisplayLanguages = displayLanguages();
+      var wrapping = { maxCharsPerLine: numberValue("maxLineCharsInput", 0), maxLines: byId("maxLinesInput").disabled ? null : numberValue("maxLinesInput", 2) };
+      function canceled() {
+        if (!state.cancelRequested) return false;
+        var cancelError = new Error("任务已取消"); cancelError.code = "E_JOB_CANCELED";
+        finishRun(cancelError);
+        return true;
+      }
+      function writeRecord(index) {
+        if (canceled()) return;
+        if (index >= records.length) return finishRun(null, { data: { count: summary.segmentCount } }, summary);
+        var record = records[index], result = record.result;
+        result.segments.forEach(function (segment) { segment.rendered = subtitleDisplay.renderSegment(segment, selectedDisplayLanguages); });
+        try { fs.writeFileSync(result.artifacts.json, JSON.stringify(result, null, 2), "utf8"); } catch (saveError) { return finishRun(saveError); }
+        writeHostResult(result, record.source).then(function (hostWriteResult) {
+          if (hostWriteResult && hostWriteResult.data && hostWriteResult.data.requiresManualPlacement) summary.manualCaptionImports += 1;
+          (hostWriteResult && hostWriteResult.envelope && hostWriteResult.envelope.warnings || []).forEach(function (warning) { summary.warnings.push(warning); });
+          progress("writingHost", (index + 1) * 100 / records.length, "已写入 " + (index + 1) + "/" + records.length + " 个独立字幕任务");
+          writeRecord(index + 1);
+        }).catch(finishRun);
+      }
+      function completeStt() {
+        if (canceled()) return;
+        if (!records.length) return finishRun(null, null, summary);
+        if (!correction.enabled && !translation.targetLanguages.length) return writeRecord(0);
+        progress("correcting", null, "全部 " + sources.length + " 个 STT 任务已完成，正在统一请求大模型一次");
+        var config = { baseUrl: translation.baseUrl, model: translation.model, timeoutMs: translation.timeoutMs, targetLanguages: translation.targetLanguages, correction: correction, maxCharsPerLine: wrapping.maxCharsPerLine };
+        state.currentRunner = llmPostprocessor.processRecords(records, config, state.sessionApiKeys[translation.apiKeyRef], function (error) {
+          state.currentRunner = null;
+          if (canceled()) return;
+          if (error) {
+            summary.warnings.push({ code: "W_LLM_POSTPROCESS_FAILED", message: "大模型处理失败，已保留完整 STT 原文 · " + error.message });
+          }
+          if (correction.enabled) {
+            try {
+              var reviewSegments = [];
+              records.forEach(function (record) { record.result.segments.forEach(function (segment) { segment.displayLanguages = selectedDisplayLanguages.slice(); segment.rendered = subtitleDisplay.renderSegment(segment, selectedDisplayLanguages); reviewSegments.push(segment); }); });
+              state.lastCorrectionReview = exportStore.path("correction-review.html");
+              fs.writeFileSync(state.lastCorrectionReview, subtitleDisplay.reviewHtml(reviewSegments), "utf8");
+              byId("openCorrectionReviewButton").hidden = false;
+            } catch (reviewError) { summary.warnings.push({ code: "W_CORRECTION_REVIEW_FAILED", message: "纠错核对文件保存失败" }); }
+          }
+          writeRecord(0);
+        });
+      }
       function runSource(index) {
+        if (canceled()) return;
         if (index >= sources.length) {
+          if (correction.enabled) return completeStt();
           if (!summary.segmentCount) return finishRun(null, null, summary);
           return finishRun(null, { data: { count: summary.segmentCount } }, summary);
         }
@@ -963,7 +1041,7 @@
         runner.on("warning", function (warning) { setText("runStatus", warning.message); });
         var timelineInMs = Number(source.timelineInMs !== undefined ? source.timelineInMs : source.inMs);
         var timelineOutMs = Number(source.timelineOutMs !== undefined ? source.timelineOutMs : source.outMs);
-        var job = { schemaVersion: 1, jobId: summary.jobId + "-source-" + index, audioInput: { path: source.path, timelineInMs: timelineInMs, timelineOutMs: timelineOutMs, sourceStartMs: Number(source.sourceStartMs) || 0, sourceEndMs: Number(source.sourceEndMs) || null, playbackRate: Number(source.playbackRate) || 1, reverse: source.reverse === true, layerId: source.layerId || null, alreadyTrimmed: false }, preprocessing: { uvr5Enabled: byId("enableUvr5Input").checked, uvr5Model: state.selectedUvr5Model }, model: state.selectedModel, runtime: runtime, transcription: { language: byId("languageSelect").value, devicePolicy: byId("deviceSelect").value, wordTimestamps: true, vad: true }, segmentation: { mode: "smart", maxCharsPerLine: numberValue("maxLineCharsInput", 0), maxLines: byId("maxLinesInput").disabled ? null : numberValue("maxLinesInput", 2) }, translation: translation };
+        var job = { schemaVersion: 1, jobId: summary.jobId + "-source-" + index, audioInput: { path: source.path, timelineInMs: timelineInMs, timelineOutMs: timelineOutMs, sourceStartMs: Number(source.sourceStartMs) || 0, sourceEndMs: Number(source.sourceEndMs) || null, playbackRate: Number(source.playbackRate) || 1, reverse: source.reverse === true, layerId: source.layerId || null, alreadyTrimmed: false }, preprocessing: { uvr5Enabled: byId("enableUvr5Input").checked, uvr5Model: state.selectedUvr5Model }, model: state.selectedModel, runtime: runtime, transcription: { language: byId("languageSelect").value, devicePolicy: byId("deviceSelect").value, wordTimestamps: true, vad: true }, segmentation: { mode: "smart", maxCharsPerLine: wrapping.maxCharsPerLine, maxLines: wrapping.maxLines }, translation: correction.enabled ? { mode: "source", targetLanguages: [] } : translation };
         runner.run(job, function (error, result) {
           state.currentRunner = null;
           if (error) return finishRun(error);
@@ -972,6 +1050,10 @@
           summary.segmentCount += (result.segments || []).length;
           (result.warnings || []).forEach(function (warning) { summary.warnings.push(warning); });
           if (result.status === "skipped" || !(result.segments || []).length) return runSource(index + 1);
+          if (correction.enabled) {
+            records.push({ result: result, source: source });
+            return runSource(index + 1);
+          }
           writeHostResult(result, source).then(function (hostWriteResult) {
             if (hostWriteResult && hostWriteResult.data && hostWriteResult.data.requiresManualPlacement) summary.manualCaptionImports += 1;
             progress("writingHost", (index + 1) * 100 / sources.length, state.host === "AEFT" ? "已写入图层 " + (index + 1) + "/" + sources.length + " 的独立字幕" : "已创建序列字幕");
@@ -1040,6 +1122,7 @@
     var srtPath = path.join(path.dirname(result.artifacts.json), "captions.srt");
     var languages = displayLanguages();
     var outputSegments = result.segments.map(function (segment) {
+      if (segment.rendered) return { startMs: segment.startMs, endMs: segment.endMs, sourceText: segment.rendered.text };
       var values = languages.map(function (language) { return language === "source" ? segment.sourceText : (segment.translations[language] && segment.translations[language].text || segment.sourceText); });
       return { startMs: segment.startMs, endMs: segment.endMs, sourceText: values.join("\n") };
     });
@@ -1066,6 +1149,11 @@
     }
     if (transcriptionResult && transcriptionResult.manualCaptionImports) {
       setStatus("warning", "SRT 字幕已导入项目", count + " 条 · 当前 Premiere Pro 需要把导入的字幕素材手动拖入时间轴");
+      return;
+    }
+    if (transcriptionResult && transcriptionResult.warnings && transcriptionResult.warnings.length) {
+      var messages = transcriptionResult.warnings.map(function (warning) { return warning.message || warning.code; }).filter(Boolean);
+      setStatus("warning", "字幕已生成（有提示）", count + " 条 · " + messages.join("；"));
       return;
     }
     setStatus("ready", "字幕已生成", count + " 条 · " + (transcriptionResult && transcriptionResult.engine ? transcriptionResult.engine.name : "Adobe"));
@@ -1096,7 +1184,10 @@
     byId("choosePythonRuntimeButton").addEventListener("click", choosePythonRuntime);
     ["deviceSelect", "languageSelect", "apiBaseUrl", "translationModel", "targetLanguageA", "targetLanguageB"].forEach(function (id) { byId(id).addEventListener("change", saveSettings); });
     byId("modelSelect").addEventListener("change", function () { state.selectedModel = state.models[Number(this.value)] || null; renderRuntime(); updateReadyState(); saveSettings(); });
-    all("[data-translation-mode]").forEach(function (button) { button.addEventListener("click", function () { all("[data-translation-mode]").forEach(function (item) { item.classList.toggle("active", item === button); }); state.translationMode = button.dataset.translationMode; byId("translationFields").hidden = state.translationMode === "source"; byId("targetLanguageBField").hidden = state.translationMode !== "bilingual"; saveSettings(); }); });
+    all("[data-translation-mode]").forEach(function (button) { button.addEventListener("click", function () { all("[data-translation-mode]").forEach(function (item) { item.classList.toggle("active", item === button); }); state.translationMode = button.dataset.translationMode; updateLanguageControls(state.translationMode, state.host); saveSettings(); }); });
+    byId("enableCorrectionInput").addEventListener("change", function () { updateLanguageControls(state.translationMode, state.host); saveSettings(); });
+    ["allowCompletionInput", "correctionColorInput"].forEach(function (id) { byId(id).addEventListener("change", saveSettings); });
+    byId("openCorrectionReviewButton").addEventListener("click", function () { if (state.lastCorrectionReview && window.cep && window.cep.util) window.cep.util.openURLInDefaultBrowser("file:///" + state.lastCorrectionReview.replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/").replace(/^([A-Za-z])%3A/, "$1:")); });
     all("[data-tab]").forEach(function (button) { button.addEventListener("click", function () { all("[data-tab]").forEach(function (item) { item.setAttribute("aria-selected", item === button ? "true" : "false"); }); all("[data-panel]").forEach(function (panel) { panel.hidden = panel.dataset.panel !== button.dataset.tab; }); }); });
     all("#positionGrid button").forEach(function (button) { button.addEventListener("click", function () { all("#positionGrid button").forEach(function (item) { item.classList.remove("active"); }); button.classList.add("active"); byId("positionX").value = button.dataset.x; byId("positionY").value = button.dataset.y; updatePreview(); }); });
     ["positionX", "positionY", "fontInput", "fontSizeInput", "trackingInput", "leadingInput", "maxLineCharsInput", "maxLinesInput"].forEach(function (id) { byId(id).addEventListener("input", function () { updatePreview(); saveSettings(); }); });
@@ -1113,7 +1204,7 @@
     byId("recordEffectTargetsButton").addEventListener("click", function () { toggleRecorder(this, effectTargetRecorder, byId("effectTargetList"), updateEffectButton, byId("recordEffectSourcesButton")); });
     byId("applyEffectsButton").addEventListener("click", applyEffects);
     byId("runButton").addEventListener("click", runTranscription);
-    byId("cancelButton").addEventListener("click", function () { if (state.currentRunner) state.currentRunner.cancel(); Object.keys(state.encoderJobs).forEach(function (id) { state.encoderJobs[id].reject(new Error("任务已取消")); delete state.encoderJobs[id]; }); });
+    byId("cancelButton").addEventListener("click", function () { state.cancelRequested = true; if (state.currentRunner) state.currentRunner.cancel(); Object.keys(state.encoderJobs).forEach(function (id) { state.encoderJobs[id].reject(new Error("任务已取消")); delete state.encoderJobs[id]; }); });
     byId("downloadModelButton").addEventListener("click", function () { showDialog("获取推荐模型", "安装器会从外置 resources 清单安装或下载 ggml-large-v3-turbo-q5_0。当前面板不会静默下载。", "打开扫描菜单", function () { byId("scanMenu").open = true; }); });
     byId("testApiButton").addEventListener("click", function () { var config = translationSettings(); var apiKey = config.apiKeyRef ? state.sessionApiKeys[config.apiKeyRef] : byId("apiKeyInput").value; setText("runStatus", "正在读取翻译模型列表"); translationClient.listModels(config, apiKey, function (error, models) { apiKey = null; if (error) return showDialog("翻译 API 连接失败", error.message + (error.code ? "\n" + error.code : "")); if (models.length) byId("translationModel").value = models[0]; showDialog("翻译 API 可用", "已读取 " + models.length + " 个模型。", null); }); });
     byId("messageDialog").addEventListener("close", function () { if (this.returnValue === "confirm" && this._onConfirm) this._onConfirm(); this._onConfirm = null; });

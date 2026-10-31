@@ -1405,6 +1405,10 @@ svg {
   cursor: pointer;
 }
 
+.correction-toggle { margin-top: 10px; }
+.correction-options { display: grid; gap: 8px; margin-top: 8px; }
+.correction-note { color: var(--muted); line-height: 1.5; overflow-wrap: break-word; }
+
 .toggle-field input[type="checkbox"] {
   width: 32px;
   height: 18px;

@@ -430,6 +430,7 @@
     }
 
     function segmentText(segment, params) {
+        if (segment.rendered && typeof segment.rendered.text === "string") return segment.rendered.text.replace(/\r?\n/g, "\r");
         if (params.displayLanguages && params.displayLanguages.length) {
             var values = [];
             for (var i = 0; i < params.displayLanguages.length; i += 1) {
@@ -470,6 +471,7 @@
                 pruneModules(layer, params.moduleSelections, warnings);
                 replaceText(layer, text, params.styleOverrides || {}, warnings);
                 setCenterPosition(layer, comp, params.position, warnings);
+                if ($._LWS.applyCorrectionHighlights) $._LWS.applyCorrectionHighlights(layer, [segment], false, warnings);
                 layer.name = (params.layerPrefix || "LWS 字幕") + " " + (i + 1);
                 created.push({ segmentId: segment.id, layerId: layer.id, templateLayerId: template ? template.layer.id : null });
             } catch (error) {
@@ -478,6 +480,7 @@
                 try {
                     layer = createPlainTextLayer(comp, text, start, end, params.styleOverrides || {});
                     setCenterPosition(layer, comp, params.position, warnings);
+                    if ($._LWS.applyCorrectionHighlights) $._LWS.applyCorrectionHighlights(layer, [segment], false, warnings);
                     layer.name = (params.layerPrefix || "LWS 字幕") + " " + (i + 1) + " [fallback]";
                     created.push({ segmentId: segment.id, layerId: layer.id, fallback: true });
                 } catch (fallbackError) { warnings.push({ code: "AE_FALLBACK_LAYER_FAILED", segmentId: segment.id, message: fallbackError.toString() }); }
@@ -554,6 +557,7 @@
         layer.outPoint = Number(last.endMs) / 1000;
         layer.name = params.layerPrefix || "LWS 字幕（单层）";
         setCenterPosition(layer, comp, params.position, warnings);
+        if ($._LWS.applyCorrectionHighlights) $._LWS.applyCorrectionHighlights(layer, valid, true, warnings);
         if (template && propertyTreeHasAnimation(template.layer)) warnings.push({ code: "AE_SINGLE_LAYER_ANIMATION_NOT_RETRIGGERED", message: "单层模式中的模板动画只播放一次" });
         if (params.templateLayers && params.templateLayers.length > 1) warnings.push({ code: "AE_SINGLE_LAYER_TEMPLATE_MODULES_NOT_ROTATED", message: "单层模式只轮换 Text Style，其他模块使用第一个模板" });
         return [{ layerId: layer.id, singleLayer: true }];

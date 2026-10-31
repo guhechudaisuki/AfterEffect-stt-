@@ -122,10 +122,18 @@
           <label class="field"><span>语言 A</span><select id="targetLanguageA"></select></label>
           <label class="field" id="targetLanguageBField" hidden><span>语言 B</span><select id="targetLanguageB"></select></label>
         </div>
-        <details class="sub-details" id="providerDetails">
-          <summary><span>翻译 API</span><i data-lucide="chevron-down"></i></summary>
+      </div>
+      <label class="feature-toggle correction-toggle"><span><strong>LLM 语义纠错</strong><small>全部识别完成后统一请求一次，保留 STT 原有表达</small></span><input id="enableCorrectionInput" type="checkbox"></label>
+      <div class="correction-options" id="correctionOptions" hidden>
+        <label class="feature-toggle"><span><strong>补全缺失内容</strong><small>仅补缺漏，不润色或重写整句话</small></span><input id="allowCompletionInput" type="checkbox"></label>
+        <label class="field color-field"><span>纠正 / 补全文字颜色</span><input id="correctionColorInput" type="color" value="#0000ff"></label>
+        <small class="correction-note" id="correctionHostNote">有色部分为大模型纠正或补全的内容</small>
+      </div>
+        <details class="sub-details" id="providerDetails" hidden>
+          <summary><span>大模型 API · 纠错 / 翻译</span><i data-lucide="chevron-down"></i></summary>
           <div class="details-body">
             <label class="field full-field"><span>接口地址</span><input id="apiBaseUrl" type="url" value="https://api.openai.com/v1" spellcheck="false"></label>
+            <small class="correction-note">开启纠错或翻译后，识别文本会发往此接口；API Key 仅用于本次会话。</small>
             <div class="field-grid two-cols">
               <label class="field"><span>模型</span><input id="translationModel" type="text" placeholder="模型名称" spellcheck="false"></label>
               <label class="field"><span>API Key</span><input id="apiKeyInput" type="password" autocomplete="off" placeholder="本次使用"></label>
@@ -133,7 +141,6 @@
             <button class="secondary-button full-command" id="testApiButton" type="button"><i data-lucide="plug-zap"></i><span>测试连接并读取模型</span></button>
           </div>
         </details>
-      </div>
     </section>
 
     <section class="control-section layout-section style-section stt-feature" aria-labelledby="styleHeading">
@@ -195,6 +202,7 @@
       <div class="progress-wrap" id="progressWrap" hidden><div class="progress-label"><span id="progressText">准备中</span><span id="progressPercent"></span></div><div class="progress-track"><span id="progressBar"></span></div></div>
       <div class="action-row"><button class="primary-button" id="runButton" type="button" disabled><i data-lucide="captions"></i><span>转写并生成字幕</span></button><button class="danger-button" id="cancelButton" type="button" hidden title="取消" aria-label="取消"><i data-lucide="square"></i></button></div>
       <p class="run-status" id="runStatus" aria-live="polite">等待宿主与模型</p>
+      <button class="secondary-button compact-action" id="openCorrectionReviewButton" type="button" hidden>查看纠错标色核对</button>
     </section>
   </main>
 

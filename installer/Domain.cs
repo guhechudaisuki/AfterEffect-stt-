@@ -7,7 +7,7 @@ namespace LocalWhisperSubtitles.Setup
     internal static class ProductInfo
     {
         public const string Name = "Local Whisper Subtitles";
-        public const string Version = "4.1.0";
+        public const string Version = "5.0.0";
         public const string ExtensionId = "com.localwhisper.subtitles";
         public const int MinimumSupportedAfterEffectsMajor = 17;
         public const int MinimumSupportedPremiereMajor = 14;
@@ -37,6 +37,7 @@ namespace LocalWhisperSubtitles.Setup
         public string MetadataRoot { get; private set; }
         public string InstallStatePath { get; private set; }
         public string InstalledUninstallerPath { get; private set; }
+        public string InstalledBackendPath { get { return Path.Combine(InstallRoot, "InstallBackend.exe"); } }
 
         public static AppPaths ForCurrentUser()
         {
@@ -131,6 +132,7 @@ namespace LocalWhisperSubtitles.Setup
         public GpuRuntimeStatus GpuRuntime { get; set; }
         public ModelScanResult ModelScan { get; set; }
         public string Error { get; set; }
+        public string FfmpegPath { get; set; }
     }
 
     internal sealed class ModelScanResult
@@ -168,6 +170,8 @@ namespace LocalWhisperSubtitles.Setup
         public string PythonExecutablePath { get; set; }
         public string ModelPath { get; set; }
         public string ModelDestinationFolder { get; set; }
+        public string ToolSearchFolder { get; set; }
+        public string NativeUninstallerPath { get; set; }
     }
 
     internal sealed class InstallState
@@ -187,6 +191,7 @@ namespace LocalWhisperSubtitles.Setup
         public string whisperCppVadModelPath { get; set; }
         public string whisperCppVadModelSha256 { get; set; }
         public string pythonExecutablePath { get; set; }
+        public string ffmpegPath { get; set; }
         public string modelPath { get; set; }
         public string modelDestinationFolder { get; set; }
         public string uninstallerPath { get; set; }

@@ -6,7 +6,7 @@
     <ProjectGuid>{A506BB4C-7382-473B-AD28-A55FA44A73B9}</ProjectGuid>
     <OutputType>WinExe</OutputType>
     <RootNamespace>LocalWhisperSubtitles.Setup</RootNamespace>
-    <AssemblyName>Setup</AssemblyName>
+    <AssemblyName>InstallBackend</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -31,7 +31,11 @@
     <Compile Include="HostDetector.cs" />
     <Compile Include="InstallerEngine.cs" />
     <Compile Include="InstallTransaction.cs" />
-    <Compile Include="MainForm.cs" />
+    <Compile Include="NsisBridge.cs" />
+    <Compile Include="LocalResourceDiscovery.cs" />
+    <Compile Include="RuntimeCompatibility.cs" />
+    <Compile Include="GpuRuntimeDetector.cs" />
+    <Compile Include="ModelDetector.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="ResourceCatalog.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

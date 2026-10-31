@@ -42,6 +42,7 @@ namespace LocalWhisperSubtitles.Setup
             {
                 Assert(HostDetector.DetectSupportedHosts().Count == 2, "Host detector did not return two host states.");
             });
+            Run("NSIS temp backend retains adjacent Adobe roots from the distribution directory", TestDistributionAdobeRoot);
             Run("Adobe 2020 host versions use product-specific majors", delegate
             {
                 Assert(ProductInfo.IsSupportedHostVersion("AEFT", 17, 0), "AE 2020 must be supported.");
@@ -50,6 +51,11 @@ namespace LocalWhisperSubtitles.Setup
                 Assert(!ProductInfo.IsSupportedHostVersion("PPRO", 13, 9), "Premiere Pro 2019 must not be supported.");
             });
             Run("non-standard Conda root supplies a Python candidate", TestNonStandardCondaRoot);
+            Run("portable and venv interpreters are discovered below a selected folder", TestPortablePythonRoots);
+            Run("saved resource paths are restored without reading API credentials", TestSavedResourceHints);
+            Run("Python CPU backends run their matching models without CUDA", TestPythonCpuCompatibility);
+            Run("backend dependencies cannot be combined across interpreters", TestSeparatePythonDependencies);
+            Run("NSIS Unicode options preserve paths and custom installs cannot download", TestNsisOptions);
             Run("Hugging Face Whisper directory is recognized", TestHuggingFaceWhisperDirectory);
             Run("installer state contract preserves selected model path", delegate
             {
@@ -266,6 +272,96 @@ namespace LocalWhisperSubtitles.Setup
                 Assert(candidates.Count == 1, "A non-standard Conda Python executable was not found.");
                 Assert(string.Equals(candidates[0], Path.GetFullPath(python), StringComparison.OrdinalIgnoreCase),
                     "The discovered Python path was incorrect.");
+            }
+            finally { SafeFileSystem.DeleteDirectory(root); }
+        }
+
+        private static void TestDistributionAdobeRoot()
+        {
+            string root = NewTempRoot(), previous = Environment.CurrentDirectory;
+            try
+            {
+                string distribution = Path.Combine(root, "release", "installer");
+                string adobe = Path.Combine(root, "Adobe");
+                Directory.CreateDirectory(distribution);
+                Directory.CreateDirectory(adobe);
+                Environment.CurrentDirectory = distribution;
+                System.Collections.Generic.List<string> roots = new System.Collections.Generic.List<string>();
+                typeof(HostDetector).GetMethod("AddAdjacentAdobeRoots", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic).Invoke(null, new object[] { roots });
+                Assert(roots.Contains(adobe), "Extracting the NSIS backend into TEMP lost the original adjacent Adobe root.");
+            }
+            finally { Environment.CurrentDirectory = previous; SafeFileSystem.DeleteDirectory(root); }
+        }
+
+        private static void TestPortablePythonRoots()
+        {
+            string root = NewTempRoot();
+            try
+            {
+                string portable = Path.Combine(root, "moved-tool", "bundle", "runtime", "python.exe");
+                string venv = Path.Combine(root, "project", ".venv", "Scripts", "python.exe");
+                Directory.CreateDirectory(Path.GetDirectoryName(portable));
+                Directory.CreateDirectory(Path.GetDirectoryName(venv));
+                File.WriteAllText(portable, "placeholder");
+                File.WriteAllText(venv, "placeholder");
+                System.Collections.Generic.List<string> candidates = GpuRuntimeDetector.FindPythonCandidates(new string[] { root }, false);
+                Assert(candidates.Contains(portable), "The moved portable Python environment was missed.");
+                Assert(candidates.Contains(venv), "The venv Scripts interpreter was missed.");
+            }
+            finally { SafeFileSystem.DeleteDirectory(root); }
+        }
+
+        private static void TestSavedResourceHints()
+        {
+            string root = NewTempRoot();
+            try
+            {
+                string model = Path.Combine(root, "Whisper 模型");
+                Directory.CreateDirectory(model);
+                string escaped = model.Replace("\\", "\\\\");
+                File.WriteAllText(Path.Combine(root, "setting.txt"), "{\"scanPath\":\"" + escaped + "\",\"selectedModelId\":\"one\",\"models\":[{\"id\":\"one\",\"path\":\"" + escaped + "\"}],\"translation\":{\"apiKey\":\"secret-never-read\"}}");
+                LocalResourceHints hints = LocalResourceHints.Load(root);
+                Assert(hints.ModelRoots.Contains(model), "Saved panel model path was omitted.");
+                Assert(hints.PreferredModelPath == model, "Panel selection was not restored.");
+                Assert(!hints.ModelRoots.Contains("secret-never-read"), "Credentials leaked into resource paths.");
+            }
+            finally { SafeFileSystem.DeleteDirectory(root); }
+        }
+
+        private static void TestPythonCpuCompatibility()
+        {
+            PythonRuntimeInfo environment = new PythonRuntimeInfo { PythonPath = "cpu-python.exe", Torch = true, TransformersWhisper = true, OpenAiWhisper = true, FasterWhisper = true, CTranslate2Cpu = true };
+            InspectionResult result = new InspectionResult { GpuRuntime = new GpuRuntimeStatus { Environments = new System.Collections.Generic.List<PythonRuntimeInfo> { environment }, PythonWhisperCpu = true } };
+            foreach (string format in new string[] { "openai-pt", "huggingface-whisper", "ctranslate2" })
+                Assert(RuntimeCompatibility.CanRun(new ModelCandidate { Format = format }, result), "CPU environment was rejected for " + format);
+            Assert(!environment.Supports("huggingface-whisper", true), "CPU environment was incorrectly marked GPU-ready.");
+        }
+
+        private static void TestSeparatePythonDependencies()
+        {
+            GpuRuntimeStatus status = new GpuRuntimeStatus { Environments = new System.Collections.Generic.List<PythonRuntimeInfo> {
+                new PythonRuntimeInfo { PythonPath = "torch-only.exe", Torch = true, TorchCuda = true },
+                new PythonRuntimeInfo { PythonPath = "transformers-only.exe", TransformersWhisper = true }
+            }};
+            Assert(status.PythonForModel("huggingface-whisper") == null, "Dependencies from separate interpreters produced a false usable result.");
+        }
+
+        private static void TestNsisOptions()
+        {
+            string root = NewTempRoot();
+            try
+            {
+                string file = Path.Combine(root, "options.ini");
+                string model = Path.Combine(root, "模型 😀", "whisper");
+                File.WriteAllText(file, "[options]\r\nquick=0\r\nae=1\r\npr=1\r\nstt=1\r\ngpu=1\r\nmodelPath=" + model + "\r\n", System.Text.Encoding.Unicode);
+                InstallOptions custom = NsisBridge.ReadOptions(file);
+                Assert(custom.ModelPath == model, "Unicode model path changed in the NSIS/backend handoff.");
+                Assert(custom.InstallEffectCopy && custom.InstallAfterEffects, "AE effect-copy must be mandatory.");
+                Assert(!custom.DownloadRecommendedModel && !custom.InstallCpuRuntime && !custom.InstallVulkanRuntime, "Custom install requested downloads.");
+                File.WriteAllText(file, "[options]\r\nquick=1\r\nae=0\r\npr=1\r\nstt=0\r\ngpu=1\r\n", System.Text.Encoding.Unicode);
+                InstallOptions quick = NsisBridge.ReadOptions(file);
+                Assert(quick.DownloadRecommendedModel && quick.InstallCpuRuntime && quick.InstallVulkanRuntime, "Quick PR must require CPU STT and preserve optional Vulkan.");
+                Assert(!quick.LicenseAccepted, "Download consent must not default on.");
             }
             finally { SafeFileSystem.DeleteDirectory(root); }
         }

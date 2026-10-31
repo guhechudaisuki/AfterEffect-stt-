@@ -62,7 +62,7 @@ namespace LocalWhisperSubtitles.Setup
                     if (node.IsRoot) output.Warnings.Add("Cannot access " + node.Path + ": " + exception.Message);
                     continue;
                 }
-                if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
+                if ((attributes & FileAttributes.ReparsePoint) != 0 && !node.IsRoot) continue;
                 output.Entries++;
 
                 if ((attributes & FileAttributes.Directory) == 0)
@@ -90,7 +90,7 @@ namespace LocalWhisperSubtitles.Setup
                 }
                 for (int i = 0; i < children.Length; i++)
                 {
-                    if (DateTime.UtcNow >= deadline || output.Entries >= maxEntries) break;
+                    if (DateTime.UtcNow >= deadline || output.Entries >= maxEntries) { output.Status = "partial"; break; }
                     string name = Path.GetFileName(children[i]);
                     try
                     {
@@ -117,8 +117,11 @@ namespace LocalWhisperSubtitles.Setup
             List<string> roots = new List<string>();
             string home = Environment.GetEnvironmentVariable("USERPROFILE") ?? string.Empty;
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            foreach (string saved in LocalResourceHints.ForCurrentUser().ModelRoots) AddRoot(roots, saved);
             AddRoot(roots, Environment.GetEnvironmentVariable("WHISPER_MODEL_DIR"));
             AddRoot(roots, Environment.GetEnvironmentVariable("HF_HOME"));
+            AddRoot(roots, Environment.GetEnvironmentVariable("HUGGINGFACE_HUB_CACHE"));
+            AddRoot(roots, Environment.GetEnvironmentVariable("HF_HUB_CACHE"));
             AddRoot(roots, Path.Combine(home, ".cache", "whisper"));
             AddRoot(roots, Path.Combine(home, ".cache", "huggingface", "hub"));
             AddRoot(roots, Path.Combine(local, "whisper"));

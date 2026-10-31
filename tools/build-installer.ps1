@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$OutputRoot,
+    [string]$NsisPath,
     [switch]$SkipTests
 )
 
@@ -64,6 +65,7 @@ if (Test-Path -LiteralPath $OutputRoot) {
 }
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 $setupPath = Join-Path $OutputRoot 'Setup.exe'
+$backendPath = Join-Path $objRoot 'InstallBackend.exe'
 
 $sources = Get-ChildItem -LiteralPath $installerRoot -Recurse -Filter '*.cs' -File |
     Where-Object { $_.FullName -notlike "$objRoot*" -and $_.FullName -notlike "$(Join-Path $installerRoot 'artifacts')*" } |
@@ -76,7 +78,7 @@ $compilerArgs = @(
     '/platform:x64',
     '/optimize+',
     '/debug-',
-    "/out:$setupPath",
+    "/out:$backendPath",
     "/win32manifest:$(Join-Path $installerRoot 'app.manifest')",
     "/resource:$payloadZip,ExtensionPayload.zip",
     '/reference:System.dll',
@@ -86,14 +88,14 @@ $compilerArgs = @(
     '/reference:System.IO.Compression.FileSystem.dll',
     '/reference:System.Web.Extensions.dll',
     '/reference:System.Windows.Forms.dll'
-) + $sources
+) + ($sources | Where-Object { [IO.Path]::GetFileName($_) -ne 'MainForm.cs' })
 
 & $csc @compilerArgs
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $backendPath -PathType Leaf)) {
     throw "Installer compilation failed with exit code $LASTEXITCODE."
 }
 
-$setupAssembly = [Reflection.Assembly]::LoadFile($setupPath)
+$setupAssembly = [Reflection.Assembly]::LoadFile($backendPath)
 $embeddedResources = @($setupAssembly.GetManifestResourceNames())
 if ($embeddedResources.Count -ne 1 -or $embeddedResources[0] -ne 'ExtensionPayload.zip') {
     throw "Setup embedded-resource boundary failed: $($embeddedResources -join ', ')"
@@ -110,6 +112,15 @@ if (Get-ChildItem -LiteralPath (Join-Path $artifactResources 'models') -File -Er
 if (-not $SkipTests) {
     & (Join-Path $repoRoot 'tests\installer\run-installer-tests.ps1')
 }
+
+$compiler = & (Join-Path $PSScriptRoot 'get-nsis.ps1') -NsisPath $NsisPath
+$version = (Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'package.json') | ConvertFrom-Json).version
+$licenseFile = Join-Path $objRoot 'third-party-licenses.txt'
+$licenseText = "STT 组件安装与下载确认`r`n`r`n仅快速安装勾选 STT 后才下载推荐模型并安装所选运行时。自定义安装不下载任何模型或运行时。`r`n`r`n"
+Get-ChildItem -LiteralPath (Join-Path $resourcesRoot 'licenses') -Filter '*.txt' -File | Sort-Object Name | ForEach-Object { $licenseText += $_.Name + "`r`n" + [IO.File]::ReadAllText($_.FullName) + "`r`n`r`n" }
+[IO.File]::WriteAllText($licenseFile, $licenseText, [Text.Encoding]::UTF8)
+& $compiler /V2 /INPUTCHARSET UTF8 "/DPRODUCT_VERSION=$version" "/DBACKEND_FILE=$backendPath" "/DOUTPUT_FILE=$setupPath" "/DLICENSE_FILE=$licenseFile" (Join-Path $installerRoot 'nsis\Setup.nsi')
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $setupPath -PathType Leaf)) { throw "NSIS compilation failed: $LASTEXITCODE" }
 
 $selfTest = Start-Process -FilePath $setupPath -ArgumentList '--self-test' -Wait -PassThru -WindowStyle Hidden
 if ($selfTest.ExitCode -ne 0) {

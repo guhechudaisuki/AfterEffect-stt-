@@ -32,10 +32,14 @@ Local Whisper Subtitles 是一款面向 Adobe After Effects 和 Premiere Pro 的
 
 ## 安装方式
 
-安装器提供两种模式：
+安装器使用原生 NSIS 中文向导，默认打开快速安装页，可进入自定义安装并返回。解压完整安装包，保持 `Setup.exe` 和 `resources` 文件夹相邻，再运行 `Setup.exe`。
 
 - **快速安装**：从零开始安装插件。可选择 After Effects、Premiere Pro，按需启用 STT 和 Vulkan GPU+CPU 加速；确认后下载安装器推荐的 Whisper 模型。
 - **自定义安装**：只接入用户已有的模型和运行环境。不会下载模型，也不会安装 CPU/Vulkan runtime 或第三方运行时。使用 Premiere Pro 时，需要用户自行准备可用的 Whisper 模型和运行环境。
+
+自定义安装优先读取插件 `setting.txt` 和已有安装记录中的模型、Python 与运行时路径，再检测常见缓存和附近的整合包 / 虚拟环境。支持指定目录扫描、全盘扫描，以及手动选择模型文件、模型目录和 `python.exe`。扫描达到时间或目录数量限制时会明确显示“部分完成”，不会把未完成的扫描当成“本机没有模型”。
+
+检测会实际导入 Python 后端并按模型格式匹配同一个环境内的依赖：CPU 环境不要求 CUDA；不同 Python 环境中的依赖不会混用。只有 AE 时可直接安装特效复制，包含 PR 时必须具备可用 STT。找不到 AE/PR 时可直接指定应用程序，不必切换安装模式。
 
 安装完成后，重新启动 Adobe 应用，并从“窗口 > 扩展（旧版）”打开插件面板。
 

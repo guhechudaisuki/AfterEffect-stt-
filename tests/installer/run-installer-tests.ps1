@@ -22,6 +22,10 @@ New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
 
 $sources = @(
     (Join-Path $repoRoot 'installer\Domain.cs'),
+    (Join-Path $repoRoot 'installer\LocalResourceDiscovery.cs'),
+    (Join-Path $repoRoot 'installer\RuntimeCompatibility.cs'),
+    (Join-Path $repoRoot 'installer\InstallerEngine.cs'),
+    (Join-Path $repoRoot 'installer\NsisBridge.cs'),
     (Join-Path $repoRoot 'installer\ResourceCatalog.cs'),
     (Join-Path $repoRoot 'installer\HostDetector.cs'),
     (Join-Path $repoRoot 'installer\GpuRuntimeDetector.cs'),

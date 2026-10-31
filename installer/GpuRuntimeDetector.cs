@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 
 namespace LocalWhisperSubtitles.Setup
 {
@@ -20,7 +21,38 @@ namespace LocalWhisperSubtitles.Setup
         public string TorchCudaPythonPath { get; set; }
         public string Backend { get; set; }
         public string Detail { get; set; }
+        public bool PythonWhisperCpu { get; set; }
+        public List<PythonRuntimeInfo> Environments { get; set; }
+        public bool AnyAvailable { get { return PythonWhisperCpu || PythonWhisperGpu; } }
         public bool Available { get { return PythonWhisperGpu; } }
+
+        public string PythonForModel(string format)
+        {
+            if (Environments == null) return null;
+            foreach (bool gpu in new bool[] { true, false })
+                foreach (PythonRuntimeInfo item in Environments)
+                    if (item.Supports(format, gpu)) return item.PythonPath;
+            return null;
+        }
+    }
+
+    internal sealed class PythonRuntimeInfo
+    {
+        public string PythonPath { get; set; }
+        public bool OpenAiWhisper { get; set; }
+        public bool FasterWhisper { get; set; }
+        public bool TransformersWhisper { get; set; }
+        public bool Torch { get; set; }
+        public bool TorchCuda { get; set; }
+        public bool CTranslate2Cpu { get; set; }
+        public bool CTranslate2Cuda { get; set; }
+        public bool Supports(string format, bool gpu)
+        {
+            if (format == "openai-pt") return OpenAiWhisper && Torch && (!gpu || TorchCuda);
+            if (format == "huggingface-whisper") return TransformersWhisper && Torch && (!gpu || TorchCuda);
+            if (format == "ctranslate2") return FasterWhisper && (gpu ? CTranslate2Cuda : CTranslate2Cpu);
+            return false;
+        }
     }
 
     internal static class GpuRuntimeDetector
@@ -37,25 +69,44 @@ namespace LocalWhisperSubtitles.Setup
 
         public static GpuRuntimeStatus Probe(string explicitPythonPath)
         {
+            return Probe(explicitPythonPath, null);
+        }
+
+        public static GpuRuntimeStatus Probe(string explicitPythonPath, string modelFormat)
+        {
+            return Probe(explicitPythonPath, modelFormat, null);
+        }
+
+        public static GpuRuntimeStatus Probe(string explicitPythonPath, string modelFormat, IEnumerable<string> additionalRoots)
+        {
             GpuRuntimeStatus result = new GpuRuntimeStatus
             {
                 NvidiaDriver = ProbeNvidiaDriver(),
                 CudaToolkit = ProbeCudaToolkit(),
+                Environments = new List<PythonRuntimeInfo>(),
                 Detail = "\u672A\u68C0\u6D4B\u5230\u53EF\u8C03\u7528\u7684 Python GPU Whisper \u8FD0\u884C\u65F6\u3002"
             };
-            if (!result.NvidiaDriver)
-            {
-                result.Detail = "\u672A\u68C0\u6D4B\u5230 NVIDIA \u9A71\u52A8\u6216 nvidia-smi\uFF1B\u53EF\u8DF3\u8FC7 GPU\uFF0C\u4F7F\u7528 CPU\u3002";
-                return result;
-            }
-
-            IEnumerable<string> candidates = string.IsNullOrWhiteSpace(explicitPythonPath)
-                ? PythonCandidates()
-                : FindPythonCandidates(new string[] { explicitPythonPath }, false);
+            List<string> candidates = new List<string>();
+            foreach (string candidate in FindPythonCandidates(new string[] { explicitPythonPath }, false)) LocalResourceHints.Add(candidates, candidate);
+            if (additionalRoots != null) foreach (string candidate in FindPythonCandidates(additionalRoots, false)) LocalResourceHints.Add(candidates, candidate);
+            foreach (string candidate in PythonCandidates()) LocalResourceHints.Add(candidates, candidate);
+            DateTime deadline = DateTime.UtcNow.AddSeconds(75);
             foreach (string python in candidates)
             {
-                PythonProbe probe = ProbePython(python);
+                if (DateTime.UtcNow >= deadline) break;
+                PythonProbe probe = ProbePython(python, Math.Min(30000, Math.Max(1000, (int)(deadline - DateTime.UtcNow).TotalMilliseconds)));
                 if (!probe.Ready) continue;
+
+                PythonRuntimeInfo environment = new PythonRuntimeInfo { PythonPath = python,
+                    OpenAiWhisper = probe.OpenAiWhisper, FasterWhisper = probe.FasterWhisper,
+                    TransformersWhisper = probe.Transformers, Torch = probe.Torch, TorchCuda = probe.TorchCuda,
+                    CTranslate2Cpu = probe.CTranslate2Cpu, CTranslate2Cuda = probe.CTranslate2Cuda };
+                result.Environments.Add(environment);
+                if (environment.Supports("openai-pt", false) || environment.Supports("huggingface-whisper", false) || environment.Supports("ctranslate2", false))
+                {
+                    result.PythonWhisperCpu = true;
+                    if (result.PythonPath == null) result.PythonPath = python;
+                }
 
                 result.OpenAiWhisper = result.OpenAiWhisper || probe.OpenAiWhisper;
                 result.FasterWhisper = result.FasterWhisper || probe.FasterWhisper;
@@ -73,7 +124,7 @@ namespace LocalWhisperSubtitles.Setup
                     result.PythonPath = python;
                     result.Backend = "OpenAI Whisper + PyTorch CUDA";
                     result.Detail = "\u5DF2\u68C0\u6D4B\u5230\u672C\u5730 PyTorch CUDA \u548C OpenAI Whisper\uFF0C\u53EF\u76F4\u63A5\u4F7F\u7528 GPU\u3002";
-                    return result;
+                    if (modelFormat == null || environment.Supports(modelFormat, true)) return result;
                 }
                 if (probe.FasterWhisper && probe.CTranslate2Cuda)
                 {
@@ -81,7 +132,7 @@ namespace LocalWhisperSubtitles.Setup
                     result.PythonPath = python;
                     result.Backend = "faster-whisper + CTranslate2 CUDA";
                     result.Detail = "\u5DF2\u68C0\u6D4B\u5230\u672C\u5730 faster-whisper CUDA\uFF0C\u53EF\u76F4\u63A5\u4F7F\u7528 GPU\u3002";
-                    return result;
+                    if (modelFormat == null || environment.Supports(modelFormat, true)) return result;
                 }
                 if (probe.Transformers && probe.TorchCuda)
                 {
@@ -89,11 +140,11 @@ namespace LocalWhisperSubtitles.Setup
                     result.PythonPath = python;
                     result.Backend = "Transformers Whisper + PyTorch CUDA";
                     result.Detail = "\u5DF2\u68C0\u6D4B\u5230\u672C\u5730 Transformers Whisper \u548C PyTorch CUDA\uFF0C\u53EF\u76F4\u63A5\u4F7F\u7528 GPU\u3002";
-                    return result;
+                    if (modelFormat == null || environment.Supports(modelFormat, true)) return result;
                 }
             }
 
-            result.Detail = DescribeUnavailable(result);
+            result.Detail = result.PythonWhisperGpu ? result.Detail : result.PythonWhisperCpu ? "GPU 后端未就绪；已有可用的 Python CPU Whisper 环境：" + result.PythonPath : DescribeUnavailable(result);
             return result;
         }
 
@@ -110,7 +161,10 @@ namespace LocalWhisperSubtitles.Setup
             }
             if (roots != null)
             {
-                foreach (string root in roots) AddPythonFromRoot(result, seen, root);
+                List<string> searchRoots = new List<string>(roots);
+                foreach (string root in searchRoots) AddPythonFromRoot(result, seen, root);
+                foreach (string executable in NearbyExecutableSearch.Find(searchRoots, new string[] { "python.exe" }, 5, 3500))
+                    if (seen.Add(executable)) result.Add(executable);
             }
             return result;
         }
@@ -152,7 +206,11 @@ namespace LocalWhisperSubtitles.Setup
 
         private static IEnumerable<string> PythonCandidates()
         {
-            return FindPythonCandidates(DiscoverPythonRoots(), true);
+            LocalResourceHints hints = LocalResourceHints.ForCurrentUser();
+            List<string> roots = new List<string>(hints.PythonRoots);
+            roots.AddRange(hints.NearbyRoots());
+            roots.AddRange(DiscoverPythonRoots());
+            return FindPythonCandidates(roots, true);
         }
 
         private static List<string> DiscoverPythonRoots()
@@ -195,14 +253,14 @@ namespace LocalWhisperSubtitles.Setup
                 if (File.Exists(expanded))
                 {
                     string fullFile = Path.GetFullPath(expanded);
-                    if (fullFile.EndsWith("python.exe", StringComparison.OrdinalIgnoreCase) && seen.Add(fullFile)) result.Add(fullFile);
+                    if (fullFile.IndexOf("\\Microsoft\\WindowsApps\\", StringComparison.OrdinalIgnoreCase) < 0 && fullFile.EndsWith("python.exe", StringComparison.OrdinalIgnoreCase) && seen.Add(fullFile)) result.Add(fullFile);
                     return;
                 }
                 string candidate = Path.Combine(expanded, "python.exe");
                 if (File.Exists(candidate))
                 {
                     candidate = Path.GetFullPath(candidate);
-                    if (seen.Add(candidate)) result.Add(candidate);
+                    if (candidate.IndexOf("\\Microsoft\\WindowsApps\\", StringComparison.OrdinalIgnoreCase) < 0 && seen.Add(candidate)) result.Add(candidate);
                 }
             }
             catch { }
@@ -325,12 +383,14 @@ namespace LocalWhisperSubtitles.Setup
             return false;
         }
 
-        private static PythonProbe ProbePython(string python)
+        private static PythonProbe ProbePython(string python, int timeoutMs)
         {
-            const string code = "import importlib.util as u,json\nresult={'whisper':bool(u.find_spec('whisper')),'faster':bool(u.find_spec('faster_whisper')),'transformers':bool(u.find_spec('transformers')),'ct2':False,'torch':False,'cuda':False}\ntry:\n import torch\n result['torch']=True\n result['cuda']=bool(torch.cuda.is_available())\nexcept Exception:\n pass\ntry:\n import ctranslate2 as c\n result['ct2']=bool(c.get_supported_compute_types('cuda'))\nexcept Exception:\n pass\nprint(json.dumps(result))";
-            ProcessResult result = Run(python, "-c \"" + code.Replace("\"", "\\\"") + "\"", 30000);
+            const string code = "import importlib,json\nresult={'whisper':False,'faster':False,'transformers':False,'ct2':False,'ct2cpu':False,'torch':False,'cuda':False}\nfor key,name in [('whisper','whisper'),('faster','faster_whisper')]:\n try:\n  importlib.import_module(name)\n  result[key]=True\n except Exception:\n  pass\ntry:\n from transformers import AutoProcessor,AutoModelForSpeechSeq2Seq\n result['transformers']=True\nexcept Exception:\n pass\ntry:\n import torch\n result['torch']=True\n result['cuda']=bool(torch.cuda.is_available())\nexcept Exception:\n pass\ntry:\n import ctranslate2 as c\n result['ct2cpu']=bool(c.get_supported_compute_types('cpu'))\n result['ct2']=bool(c.get_supported_compute_types('cuda'))\nexcept Exception:\n pass\nprint('LWS_PROBE:'+json.dumps(result))";
+            ProcessResult result = Run(python, "-c \"" + code.Replace("\"", "\\\"") + "\"", timeoutMs);
             if (result.ExitCode != 0) return new PythonProbe();
-            string compact = (result.Stdout ?? string.Empty).Replace(" ", string.Empty).Replace("\r", string.Empty).Replace("\n", string.Empty);
+            string stdout = result.Stdout ?? string.Empty;
+            int marker = stdout.LastIndexOf("LWS_PROBE:", StringComparison.Ordinal);
+            string compact = marker < 0 ? string.Empty : stdout.Substring(marker + 10).Trim().Replace(" ", string.Empty);
             return new PythonProbe
             {
                 Ready = compact.IndexOf("{", StringComparison.Ordinal) >= 0,
@@ -338,6 +398,8 @@ namespace LocalWhisperSubtitles.Setup
                 FasterWhisper = JsonTrue(compact, "faster"),
                 Transformers = JsonTrue(compact, "transformers"),
                 CTranslate2Cuda = JsonTrue(compact, "ct2"),
+                CTranslate2Cpu = JsonTrue(compact, "ct2cpu"),
+                Torch = JsonTrue(compact, "torch"),
                 TorchCuda = JsonTrue(compact, "cuda")
             };
         }
@@ -357,19 +419,20 @@ namespace LocalWhisperSubtitles.Setup
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
-                    WorkingDirectory = Environment.CurrentDirectory
+                    WorkingDirectory = File.Exists(fileName) ? Path.GetDirectoryName(Path.GetFullPath(fileName)) : Environment.CurrentDirectory
                 };
                 using (Process process = Process.Start(start))
                 {
                     if (process == null) return new ProcessResult { ExitCode = -1 };
-                    string stdout = process.StandardOutput.ReadToEnd();
-                    string stderr = process.StandardError.ReadToEnd();
+                    Task<string> stdout = process.StandardOutput.ReadToEndAsync();
+                    Task<string> stderr = process.StandardError.ReadToEndAsync();
                     if (!process.WaitForExit(timeoutMs))
                     {
                         try { process.Kill(); } catch { }
-                        return new ProcessResult { ExitCode = -2, Stdout = stdout, Stderr = stderr };
+                        return new ProcessResult { ExitCode = -2 };
                     }
-                    return new ProcessResult { ExitCode = process.ExitCode, Stdout = stdout, Stderr = stderr };
+                    if (!Task.WaitAll(new Task[] { stdout, stderr }, 1000)) return new ProcessResult { ExitCode = -2 };
+                    return new ProcessResult { ExitCode = process.ExitCode, Stdout = stdout.Result, Stderr = stderr.Result };
                 }
             }
             catch
@@ -392,6 +455,8 @@ namespace LocalWhisperSubtitles.Setup
             public bool FasterWhisper;
             public bool Transformers;
             public bool CTranslate2Cuda;
+            public bool CTranslate2Cpu;
+            public bool Torch;
             public bool TorchCuda;
         }
     }

@@ -332,6 +332,7 @@
   function detectEnvironment(models, callback) {
     var managedRoot = path.join(process.env.LOCALAPPDATA || os.homedir(), "LocalWhisperSubtitles");
     var roots = [path.join(managedRoot, "runtime"), path.join(root, "..", "resources", "runtimes")];
+    roots = roots.concat(state.installedToolPaths || []);
     (models || []).forEach(function (model) { roots.push(model.path); });
     runtimeDetector.detectRuntimes({ extraRoots: roots, pythonPaths: state.pythonPaths }, function (error, result) {
       if (error) return callback(error);
@@ -349,6 +350,7 @@
     var stateFile = path.join(process.env.LOCALAPPDATA || os.homedir(), "LocalWhisperSubtitles", "install-state.json");
     try {
       var installed = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+      state.installedToolPaths = [installed.runtimePath, installed.vulkanRuntimePath, installed.ffmpegPath].filter(function (file) { return file && fs.existsSync(file); });
       var python = installed && installed.pythonExecutablePath;
       if (python && fs.existsSync(python)) {
         state.pythonPaths = [python];

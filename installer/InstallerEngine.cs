@@ -58,20 +58,47 @@ namespace LocalWhisperSubtitles.Setup
 
         public InspectionResult Inspect(string[] explicitHostExecutablePaths, string explicitModelPath, string explicitPythonPath, bool scanModels)
         {
+            return Inspect(explicitHostExecutablePaths, explicitModelPath, explicitPythonPath, scanModels, null, false);
+        }
+
+        public InspectionResult Inspect(string[] explicitHostExecutablePaths, string explicitModelPath, string explicitPythonPath, bool scanModels, string toolSearchFolder, bool fullScan)
+        {
             List<string> modelRoots = new List<string>(ModelDetector.DefaultRoots());
             modelRoots.Add(Path.Combine(_resourcesRoot, "models"));
+            if (fullScan) { modelRoots.Clear(); foreach (DriveInfo drive in DriveInfo.GetDrives()) if (drive.IsReady && drive.DriveType == DriveType.Fixed) modelRoots.Add(drive.RootDirectory.FullName); }
+            ModelScanResult scan = !scanModels
+                ? new ModelScanResult { Mode = "skipped", Status = "not-scanned", Models = new List<ModelCandidate>(), Warnings = new List<string>() }
+                : fullScan ? ModelDetector.Scan("full", modelRoots, 24, 300000, 30000)
+                : string.IsNullOrWhiteSpace(explicitModelPath) ? ModelDetector.Scan("saved-and-common", modelRoots, 8, 20000, 5000)
+                : ModelDetector.ScanSpecified(explicitModelPath);
+            LocalResourceHints hints = scanModels ? LocalResourceHints.ForCurrentUser() : new LocalResourceHints();
+            LocalResourceHints.Add(hints.ModelRoots, explicitModelPath);
+            List<string> toolRoots = scanModels ? hints.NearbyRoots() : new List<string>();
+            LocalResourceHints.Add(toolRoots, toolSearchFolder);
+            if (fullScan) foreach (string drive in modelRoots) LocalResourceHints.Add(toolRoots, drive);
+            string pathValue = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+            foreach (string directory in pathValue.Split(Path.PathSeparator)) LocalResourceHints.Add(toolRoots, directory);
+            List<string> tools = scanModels ? NearbyExecutableSearch.Find(toolRoots, new string[] { "python.exe", "ffmpeg.exe", "whisper-cli.exe", "whisper.exe" }, fullScan ? 16 : 5, fullScan ? 12000 : 3000) : new List<string>();
+            List<string> pythonRoots = new List<string>();
+            foreach (string tool in tools) if (string.Equals(Path.GetFileName(tool), "python.exe", StringComparison.OrdinalIgnoreCase)) pythonRoots.Add(tool);
+            pythonRoots.AddRange(toolRoots);
+            string selected = NormalizeSelectedModelPath(explicitModelPath ?? hints.PreferredModelPath, scan);
+            ModelCandidate selectedModel = scan.Models.Find(delegate(ModelCandidate item) { return string.Equals(item.Path, selected, StringComparison.OrdinalIgnoreCase); });
             InspectionResult result = new InspectionResult
             {
                 Hosts = HostDetector.DetectSupportedHosts(explicitHostExecutablePaths),
                 ExistingRuntimePath = InstalledRuntimeDetector.Find(_paths),
                 ExistingVulkanRuntimePath = InstalledRuntimeDetector.FindVulkan(_paths),
-                GpuRuntime = GpuRuntimeDetector.Probe(explicitPythonPath),
-                ModelScan = !scanModels
-                    ? new ModelScanResult { Mode = "skipped", Status = "not-scanned", Entries = 0, CompatibleCount = 0, Models = new List<ModelCandidate>(), Warnings = new List<string>() }
-                    : string.IsNullOrWhiteSpace(explicitModelPath)
-                    ? ModelDetector.Scan("quick", modelRoots, 5, 20000, 5000)
-                    : ModelDetector.ScanSpecified(explicitModelPath)
+                GpuRuntime = scanModels ? GpuRuntimeDetector.Probe(explicitPythonPath, selectedModel == null ? null : selectedModel.Format, pythonRoots) : new GpuRuntimeStatus { Environments = new List<PythonRuntimeInfo>(), Detail = "快速安装不检测本地 Python/CUDA 环境。" },
+                ModelScan = scan
             };
+            foreach (string tool in tools)
+            {
+                if (string.Equals(Path.GetFileName(tool), "ffmpeg.exe", StringComparison.OrdinalIgnoreCase)) { if (result.FfmpegPath == null) result.FfmpegPath = tool; continue; }
+                if (!WhisperRuntimeIdentity.IsLikelyWhisperCli(tool)) continue;
+                if (WhisperRuntimeIdentity.IsVulkanWhisperCli(tool)) { if (result.ExistingVulkanRuntimePath == null) result.ExistingVulkanRuntimePath = tool; }
+                else if (result.ExistingRuntimePath == null) result.ExistingRuntimePath = tool;
+            }
 
             try
             {
@@ -103,12 +130,15 @@ namespace LocalWhisperSubtitles.Setup
             if (!options.QuickInstall && options.InstallPremiere && string.IsNullOrWhiteSpace(options.ModelPath))
                 throw new InvalidOperationException("自定义安装使用 PR/STT 时必须指定本地 Whisper 模型。");
 
-            InspectionResult inspection = Inspect(options.HostExecutablePaths, options.QuickInstall ? null : options.ModelPath, options.PythonExecutablePath, !options.QuickInstall);
+            InspectionResult inspection = Inspect(options.HostExecutablePaths, options.QuickInstall ? null : options.ModelPath, options.PythonExecutablePath, !options.QuickInstall, options.ToolSearchFolder, false);
             EnsureSupportedHost(inspection.Hosts, options.InstallAfterEffects, options.InstallPremiere);
             EnsureComponentSelection(options);
             if (!options.QuickInstall && options.InstallPremiere
                 && string.IsNullOrWhiteSpace(NormalizeSelectedModelPath(options.ModelPath, inspection.ModelScan)))
                 throw new InvalidOperationException("自定义安装指定的 Whisper 模型无效或未被识别，请选择 GGML/GGUF、CTranslate2 或 Hugging Face 模型目录。");
+            ModelCandidate chosenModel = inspection.ModelScan.Models.Find(delegate(ModelCandidate item) { return string.Equals(item.Path, NormalizeSelectedModelPath(options.ModelPath, inspection.ModelScan), StringComparison.OrdinalIgnoreCase); });
+            if (!options.QuickInstall && options.InstallPremiere && !RuntimeCompatibility.CanRun(chosenModel, inspection))
+                throw new InvalidOperationException("模型已找到，但没有与该模型格式匹配的 CPU/GPU 运行环境。请指定环境目录或 Python.exe。");
             EnsureAdobeHostsAreClosed();
             if (inspection.Catalog == null) throw new InvalidDataException(inspection.Error ?? "External resources are unavailable.");
 
@@ -118,7 +148,7 @@ namespace LocalWhisperSubtitles.Setup
             bool sttRequested = options.InstallPremiere || options.DownloadRecommendedModel;
             bool hasExistingStt = !string.IsNullOrWhiteSpace(inspection.ExistingRuntimePath)
                 || !string.IsNullOrWhiteSpace(inspection.ExistingVulkanRuntimePath)
-                || inspection.GpuRuntime != null && inspection.GpuRuntime.Available;
+                || inspection.GpuRuntime != null && inspection.GpuRuntime.AnyAvailable;
             bool willInstallStt = options.InstallCpuRuntime || options.InstallVulkanRuntime;
             bool hasExistingCpu = !string.IsNullOrWhiteSpace(inspection.ExistingRuntimePath);
             if (options.QuickInstall && sttRequested && !hasExistingCpu && !options.InstallCpuRuntime)
@@ -211,7 +241,12 @@ namespace LocalWhisperSubtitles.Setup
                     transaction.ReplaceDirectory(metadataIncoming, _paths.MetadataRoot);
 
                     Report(report, "Registering per-user installation...");
-                    transaction.ReplaceFile(_executablePath, _paths.InstalledUninstallerPath);
+                    if (!string.IsNullOrWhiteSpace(options.NativeUninstallerPath))
+                    {
+                        transaction.ReplaceFile(_executablePath, _paths.InstalledBackendPath);
+                        transaction.ReplaceFile(options.NativeUninstallerPath, _paths.InstalledUninstallerPath);
+                    }
+                    else transaction.ReplaceFile(_executablePath, _paths.InstalledUninstallerPath);
                     InstallState state = new InstallState
                     {
                         productVersion = ProductInfo.Version,
@@ -228,7 +263,8 @@ namespace LocalWhisperSubtitles.Setup
                         vulkanRuntimePath = installedVulkanRuntimePath,
                         whisperCppVadModelPath = ownsVadModel ? installedVadModelPath : null,
                         whisperCppVadModelSha256 = ownsVadModel ? managedVadModelSha256 : null,
-                        pythonExecutablePath = inspection.GpuRuntime != null && inspection.GpuRuntime.Available ? inspection.GpuRuntime.PythonPath : null,
+                        pythonExecutablePath = inspection.GpuRuntime == null ? null : chosenModel == null ? inspection.GpuRuntime.PythonPath : inspection.GpuRuntime.PythonForModel(chosenModel.Format),
+                        ffmpegPath = inspection.FfmpegPath,
                         modelPath = downloadedModelPath ?? NormalizeSelectedModelPath(options.ModelPath, inspection.ModelScan),
                         modelDestinationFolder = options.ModelDestinationFolder,
                         uninstallerPath = _paths.InstalledUninstallerPath
@@ -237,7 +273,7 @@ namespace LocalWhisperSubtitles.Setup
                     transaction.WriteTextFile(_paths.InstallStatePath, stateJson);
 
                     transaction.SetRegistryValue(Registry.CurrentUser, CsxsRegistryPath, "PlayerDebugMode", "1", RegistryValueKind.String);
-                    RegisterUninstaller(transaction);
+                    RegisterUninstaller(transaction, !string.IsNullOrWhiteSpace(options.NativeUninstallerPath));
 
                     if (!File.Exists(Path.Combine(_paths.ExtensionPath, "CSXS", "manifest.xml")))
                         throw new InvalidDataException("CEP extension self-test failed: CSXS/manifest.xml is missing.");
@@ -293,6 +329,8 @@ namespace LocalWhisperSubtitles.Setup
                     }
                     transaction.RemoveDirectory(_paths.MetadataRoot);
                     transaction.RemoveFile(_paths.InstallStatePath);
+                    if (!string.Equals(currentExecutable, _paths.InstalledBackendPath, StringComparison.OrdinalIgnoreCase))
+                        transaction.RemoveFile(_paths.InstalledBackendPath);
                     if (!string.Equals(currentExecutable, _paths.InstalledUninstallerPath, StringComparison.OrdinalIgnoreCase))
                         transaction.RemoveFile(_paths.InstalledUninstallerPath);
 
@@ -404,7 +442,7 @@ namespace LocalWhisperSubtitles.Setup
             }
         }
 
-        private void RegisterUninstaller(InstallTransaction transaction)
+        private void RegisterUninstaller(InstallTransaction transaction, bool native)
         {
             Dictionary<string, RegistryEntry> values = new Dictionary<string, RegistryEntry>(StringComparer.OrdinalIgnoreCase);
             values["DisplayName"] = new RegistryEntry(ProductInfo.Name, RegistryValueKind.String);
@@ -412,8 +450,8 @@ namespace LocalWhisperSubtitles.Setup
             values["Publisher"] = new RegistryEntry("Local Whisper Subtitles", RegistryValueKind.String);
             values["InstallLocation"] = new RegistryEntry(_paths.InstallRoot, RegistryValueKind.String);
             values["DisplayIcon"] = new RegistryEntry(_paths.InstalledUninstallerPath, RegistryValueKind.String);
-            values["UninstallString"] = new RegistryEntry(Quote(_paths.InstalledUninstallerPath) + " --uninstall", RegistryValueKind.String);
-            values["QuietUninstallString"] = new RegistryEntry(Quote(_paths.InstalledUninstallerPath) + " --uninstall --quiet", RegistryValueKind.String);
+            values["UninstallString"] = new RegistryEntry(Quote(_paths.InstalledUninstallerPath) + (native ? "" : " --uninstall"), RegistryValueKind.String);
+            values["QuietUninstallString"] = new RegistryEntry(Quote(_paths.InstalledUninstallerPath) + (native ? " /S" : " --uninstall --quiet"), RegistryValueKind.String);
             values["NoModify"] = new RegistryEntry(1, RegistryValueKind.DWord);
             values["NoRepair"] = new RegistryEntry(1, RegistryValueKind.DWord);
             transaction.ReplaceRegistryKey(Registry.CurrentUser, UninstallRegistryPath, values);
@@ -509,6 +547,8 @@ namespace LocalWhisperSubtitles.Setup
 
         private static void EnsureComponentSelection(InstallOptions options)
         {
+            if (!options.InstallAfterEffects && !options.InstallPremiere)
+                throw new InvalidOperationException("请至少选择 AE 或 PR。");
             if (options.InstallAfterEffects && !options.InstallEffectCopy)
                 throw new InvalidOperationException("After Effects requires the effect-copy component.");
             if (!options.InstallAfterEffects && options.InstallEffectCopy)

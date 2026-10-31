@@ -228,13 +228,18 @@ namespace LocalWhisperSubtitles.Setup
 
         private static void AddAdjacentAdobeRoots(List<string> list)
         {
-            string current = AppDomain.CurrentDomain.BaseDirectory;
-            for (int depth = 0; depth < 6 && !string.IsNullOrWhiteSpace(current); depth++)
+            // NSIS extracts its backend to TEMP. Keep searching relative to the
+            // original distribution location, not just the extracted executable.
+            foreach (string start in new string[] { AppDomain.CurrentDomain.BaseDirectory, Environment.CurrentDirectory })
             {
-                AddExistingRoot(list, Path.Combine(current, "Adobe"));
-                string parent = Path.GetDirectoryName(current.TrimEnd(Path.DirectorySeparatorChar));
-                if (string.Equals(parent, current, StringComparison.OrdinalIgnoreCase)) break;
-                current = parent;
+                string current = start;
+                for (int depth = 0; depth < 8 && !string.IsNullOrWhiteSpace(current); depth++)
+                {
+                    AddExistingRoot(list, Path.Combine(current, "Adobe"));
+                    string parent = Path.GetDirectoryName(current.TrimEnd(Path.DirectorySeparatorChar));
+                    if (string.Equals(parent, current, StringComparison.OrdinalIgnoreCase)) break;
+                    current = parent;
+                }
             }
         }
 

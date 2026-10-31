@@ -3,6 +3,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
+// Legacy WinForms source contracts remain for upgrade reference only; the
+// shipping NSIS UI is exercised by nsis-installer.test.js and native UI smoke.
 const source = fs.readFileSync(path.resolve(__dirname, "../../installer/MainForm.cs"), "utf8");
 const hostDetectorSource = fs.readFileSync(path.resolve(__dirname, "../../installer/HostDetector.cs"), "utf8");
 const engineSource = fs.readFileSync(path.resolve(__dirname, "../../installer/InstallerEngine.cs"), "utf8");
